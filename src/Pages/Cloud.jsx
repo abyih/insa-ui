@@ -301,51 +301,50 @@ export default function Cloud() {
   const displayFlows = securityRules;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
-      <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-50">
-        <div className="flex items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-4">
-            <div className="h-12 w-12 rounded-2xl bg-blue-600 flex items-center justify-center text-xl font-bold shadow-lg shadow-blue-500/30">
-              OVN
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-wide">
-                OpenStack OVN Cloud Dashboard
-              </h1>
-              <p className="text-sm text-slate-400">
-                SDN-aware centralized cloud networking platform
-              </p>
-            </div>
+    <div className="space-y-8 max-w-7xl mx-auto">
+      {/* Sub-navigation control bar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-zinc-800">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-sm font-bold shadow-md">
+            OVN
           </div>
-
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setShowTopology(true)}
-              className="rounded-xl border border-slate-700 px-4 py-2 hover:bg-slate-800 transition"
-            >
-              Topology
-            </button>
-            <button 
-              onClick={() => scrollToSection(networksRef)}
-              className="rounded-xl border border-slate-700 px-4 py-2 hover:bg-slate-800 transition"
-            >
-              Networks
-            </button>
-            <button 
-              onClick={() => scrollToSection(securityRef)}
-              className="rounded-xl border border-slate-700 px-4 py-2 hover:bg-slate-800 transition"
-            >
-              Security
-            </button>
-            <button 
-              onClick={() => setShowLaunchModal(true)}
-              className="rounded-xl bg-blue-600 px-5 py-2 font-semibold hover:bg-blue-500 transition shadow-lg shadow-blue-600/30"
-            >
-              Launch Instance
-            </button>
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-zinc-50">
+              OpenStack OVN Cloud Controller
+            </h2>
+            <p className="text-xs text-zinc-400">
+              Centralized tenant networking logic, virtual routers, overlay segmentation & ACL policies.
+            </p>
           </div>
         </div>
-      </header>
+
+        <div className="flex items-center gap-2 flex-wrap text-xs font-semibold">
+          <button 
+            onClick={() => setShowTopology(true)}
+            className="px-3.5 py-2 rounded-lg border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 transition"
+          >
+            Show Topology Graph
+          </button>
+          <button 
+            onClick={() => scrollToSection(networksRef)}
+            className="px-3.5 py-2 rounded-lg border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 transition"
+          >
+            Logical Networks
+          </button>
+          <button 
+            onClick={() => scrollToSection(securityRef)}
+            className="px-3.5 py-2 rounded-lg border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 transition"
+          >
+            Security Groups
+          </button>
+          <button 
+            onClick={() => setShowLaunchModal(true)}
+            className="px-4 py-2 rounded-lg bg-zinc-50 hover:bg-zinc-200 text-zinc-950 font-bold transition"
+          >
+            Launch VM Instance
+          </button>
+        </div>
+      </div>
 
       <main className="p-6 space-y-8 h-full flex flex-col">
         {showTopology && (

@@ -2,30 +2,13 @@
 "use client";
 
 import React, { useState } from "react";
+import Input from "../common/Input";
 
 const protocolTypes = [
-	{
-		name: "ARP",
-		value: 2054,
-	},
-	{
-		name: "IPv4",
-		value: 2048,
-	},
-
-	// {
-	// 	name: "TCP",
-	// 	value: 2048,
-	// },
-	// {
-	// 	name: "UDP",
-	// 	value: 2048,
-	// },
-	// {
-	// 	name: "ICMP",
-	// 	value: 2048,
-	// },
+	{ name: "ARP", value: 2054 },
+	{ name: "IPv4", value: 2048 },
 ];
+
 const FlowForm = ({ onSubmit, onClose, initialData, connectors }) => {
 	const [form, setForm] = useState({
 		...initialData,
@@ -56,199 +39,153 @@ const FlowForm = ({ onSubmit, onClose, initialData, connectors }) => {
 	};
 
 	return (
-		<div className="fixed inset-0 bg-gray-600/50 flex justify-center items-center z-50 w-screen h-screen">
-			<div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full min-w-96 relative">
-				<header className="px-1 mb-6 flex justify-between items-center">
-					<h2 className="text-gray-900 font-bold text-xl">
-						Add/Update Flow
+		<div className="fixed inset-0 bg-zinc-950/70 backdrop-blur-sm flex justify-center items-center z-50 w-screen h-screen px-4 animate-in fade-in duration-200">
+			<div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-2xl max-w-md w-full relative animate-in zoom-in-95 duration-200">
+				
+				<header className="mb-6 flex justify-between items-center">
+					<h2 className="text-zinc-50 font-bold text-lg">
+						Inject Flow Rule
 					</h2>
 					<button
 						onClick={onClose}
-						className="text-gray-600 hover:text-black w-8 h-8 rounded-full hover:bg-gray-300 text-lg"
+						className="text-zinc-400 hover:text-zinc-100 w-8 h-8 rounded-full hover:bg-zinc-800 flex items-center justify-center transition-colors text-sm focus:outline-none"
 					>
 						✕
 					</button>
 				</header>
 
 				<form onSubmit={handleSubmit} className="space-y-4">
-					<div className="flex w-full justify-between">
-						<label className="text-gray-900 text-lg">Node ID</label>
-						<input
-							name="nodeId"
-							value={form.nodeId}
-							// onChange={handleChange}
-							className="border border-gray-600 rounded p-2 disabled:bg-gray-100"
-							disabled={true}
-						/>
+					
+					<div className="grid grid-cols-2 gap-4">
+						<div>
+							<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Node ID</label>
+							<input
+								name="nodeId"
+								value={form.nodeId}
+								className="w-full px-3 py-2 bg-zinc-950 border border-zinc-850 rounded-lg text-sm text-zinc-500 opacity-60 cursor-not-allowed outline-none"
+								disabled={true}
+							/>
+						</div>
+						<div>
+							<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Table ID</label>
+							<input
+								name="tableId"
+								type="number"
+								value={form.tableId}
+								onChange={handleChange}
+								className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-400 transition"
+							/>
+						</div>
 					</div>
-					<div className="flex w-full justify-between">
-						<label className="text-gray-900 text-lg">
-							Table ID
-						</label>
-						<input
-							name="tableId"
-							type="number"
-							value={form.tableId}
-							onChange={handleChange}
-							className="border border-gray-600 rounded p-2"
-						/>
+
+					<div className="grid grid-cols-2 gap-4">
+						<div>
+							<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Flow ID</label>
+							<input
+								name="flowId"
+								value={form.flowId}
+								onChange={handleChange}
+								className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-400 transition"
+							/>
+						</div>
+						<div>
+							<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Priority</label>
+							<input
+								name="priority"
+								type="number"
+								value={form.priority}
+								onChange={handleChange}
+								className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-400 transition"
+							/>
+						</div>
 					</div>
-					<div className="flex w-full justify-between">
-						<label className="text-gray-900 text-lg">Flow ID</label>
-						<input
-							name="flowId"
-							value={form.flowId}
-							onChange={handleChange}
-							className="border border-gray-600 rounded p-2"
-						/>
-					</div>
-					<div className="flex w-full justify-between">
-						<label className="text-gray-900 text-lg">
-							Flow Name
-						</label>
+
+					<div>
+						<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Flow Name</label>
 						<input
 							name="flowName"
 							value={form.flowName}
 							onChange={handleChange}
-							className="border border-gray-600 rounded p-2"
+							className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-400 transition"
 						/>
 					</div>
-					<div className="flex w-full justify-between">
-						<label className="text-gray-900 text-lg">
-							Priority
-						</label>
-						<input
-							name="priority"
-							type="number"
-							value={form.priority}
-							onChange={handleChange}
-							className="border border-gray-600 rounded p-2"
-						/>
+
+					<div className="grid grid-cols-3 gap-3">
+						<div>
+							<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Protocol</label>
+							<select
+								name="ethType"
+								value={form.ethType}
+								onChange={handleChange}
+								className="w-full px-2 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-400 transition"
+							>
+								<option value="" disabled selected>Select</option>
+								{protocolTypes.map((p) => (
+									<option key={p.name} value={p.value}>{p.name}</option>
+								))}
+							</select>
+						</div>
+
+						<div>
+							<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">In Port</label>
+							<select
+								name="inPort"
+								value={form.inPort}
+								onChange={handleChange}
+								className="w-full px-2 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-400 transition"
+							>
+								<option value="" disabled selected>Select</option>
+								{connectors.map((c) => (
+									<option key={c.id} value={c.portNumber}>{c.name}</option>
+								))}
+							</select>
+						</div>
+
+						<div>
+							<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Out Port</label>
+							<select
+								name="outPort"
+								value={form.outPort}
+								onChange={handleChange}
+								className="w-full px-2 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-400 transition"
+							>
+								<option value="" disabled selected>Select</option>
+								{connectors.map((c) => (
+									<option key={c.id} value={c.portNumber}>{c.name}</option>
+								))}
+								<option value="FLOOD">Flood</option>
+							</select>
+						</div>
 					</div>
-					<div className="flex w-full justify-between">
-						<label className="text-gray-900 text-lg">
-							Protocol type
-						</label>
-						<select
-							name="ethType"
-							value={form.ethType}
-							onChange={handleChange}
-							className={`border border-gray-600 rounded p-2 ${
-								form.ethType ? "text-gray-800" : "text-gray-500"
-							}`}
-						>
-							<option selected disabled>
-								Select a protocol type
-							</option>
-							{protocolTypes.map((protocol) => {
-								return (
-									<option
-										key={protocol.name}
-										value={protocol.value}
-									>
-										{protocol.name}
-									</option>
-								);
-							})}
-						</select>
+
+					<div className="grid grid-cols-2 gap-4">
+						<div>
+							<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">IPv4 Source</label>
+							<input
+								name="ipv4Source"
+								value={form.ipv4Source}
+								onChange={handleChange}
+								className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-400 transition"
+							/>
+						</div>
+						<div>
+							<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">IPv4 Dest</label>
+							<input
+								name="ipv4Destination"
+								value={form.ipv4Destination}
+								onChange={handleChange}
+								className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-400 transition"
+							/>
+						</div>
 					</div>
-					<div className="flex w-full justify-between">
-						<label className="text-gray-900 text-lg">In Port</label>
-						<select
-							name="inPort"
-							value={form.inPort}
-							onChange={handleChange}
-							className={`border border-gray-600 rounded p-2 ${
-								form.inPort ? "text-gray-800" : "text-gray-500"
-							}`}
-						>
-							<option disabled={true} selected={true}>
-								Select Incoming Port
-							</option>
-							{connectors.map((connector) => {
-								return (
-									<option
-										key={connector.id}
-										value={connector.portNumber}
-									>
-										{connector.name}
-									</option>
-								);
-							})}
-						</select>
-						{/* <input
-							name="inPort"
-							value={form.inPort}
-							type="number"
-							onChange={handleChange}
-							placeholder="Incoming port number"
-							className="border border-gray-600 rounded p-2"
-						/> */}
-					</div>
-					<div className="flex w-full justify-between">
-						<label className="text-gray-900 text-lg">
-							Out Port
-						</label>
-						<select
-							name="outPort"
-							value={form.outPort}
-							onChange={handleChange}
-							className={`border border-gray-600 rounded p-2 ${
-								form.outPort ? "text-gray-800" : "text-gray-500"
-							}`}
-						>
-							<option disabled={true} selected={true}>
-								Select Outgoing Port
-							</option>
-							{connectors.map((connector) => {
-								return (
-									<option
-										key={connector.id}
-										value={connector.portNumber}
-									>
-										{connector.name}
-									</option>
-								);
-							})}
-							<option value={"FLOOD"}>Flood</option>
-						</select>
-						{/* <input
-							name="outPort"
-							type="number"
-							value={form.outPort}
-							onChange={handleChange}
-							placeholder="Outgoing port number"
-							className="border border-gray-600 rounded p-2"
-						/> */}
-					</div>
-					<div className="flex w-full justify-between">
-						<label className="text-gray-900 text-lg">
-							IPv4 Source
-						</label>
-						<input
-							name="ipv4Source"
-							value={form.ipv4Source}
-							onChange={handleChange}
-							className="border border-gray-600 rounded p-2"
-						/>
-					</div>
-					<div className="flex w-full justify-between">
-						<label className="text-gray-900 text-lg">
-							IPv4 Destination
-						</label>
-						<input
-							name="ipv4Destination"
-							value={form.ipv4Destination}
-							onChange={handleChange}
-							className="border border-gray-600 rounded p-2"
-						/>
-					</div>
+
 					<button
 						type="submit"
-						className="px-4 py-2 bg-blue-600 text-white rounded"
+						className="w-full mt-6 py-2.5 bg-zinc-50 hover:bg-zinc-200 text-zinc-950 font-semibold rounded-lg text-sm transition duration-200 focus:outline-none"
 					>
-						Submit
+						Inject Flow Rule
 					</button>
+
 				</form>
 			</div>
 		</div>

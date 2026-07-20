@@ -39,9 +39,10 @@ export async function getInventoryNodes() {
 export async function getNodeTables(nodeId) {
   try {
     const { data } = await flowApi.get(
-      `opendaylight-inventory:nodes/node=${nodeId}/flow-node-inventory:table?content=nonconfig`
+      `opendaylight-inventory:nodes/node=${nodeId}?content=nonconfig`
     );
-    return data?.["flow-node-inventory:table"] || [];
+    const node = data?.["opendaylight-inventory:node"]?.[0] || {};
+    return node["flow-node-inventory:table"] || [];
   } catch (error) {
     throw new Error(getErrorMessage(error));
   }

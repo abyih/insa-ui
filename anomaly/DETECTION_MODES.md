@@ -57,7 +57,7 @@ Uses 6 features from **Kaggle SDN dataset** format:
 6. `tx_bytes` - Transmitted bytes
 
 ### Workflow
-1. **Model Loading** - Load pretrained Random Forest from `pretrained_clf.pkl`
+1. **Model Loading** - Load pretrained Random Forest from `pretrained_kdd_rf.pkl`
 2. **Feature Preprocessing** - log1p transform + RobustScaler
 3. **Probability Prediction** - `predict_proba` for attack probability
 4. **Zone Classification** - Map probability to attack zones

@@ -353,14 +353,14 @@ pip install numpy pandas scikit-learn joblib requests flask flask-cors scipy
 ```bash
 ls anomaly/*.pkl
 # You should see:
-# anomaly/pretrained_clf.pkl
+# anomaly/pretrained_kdd_rf.pkl
 # anomaly/pretrained_if.pkl
 ```
 
 > ⚠️ These `.pkl` files are pre-trained ML models. **Do not delete them.**
 > If they are missing, you must retrain by running:
 > ```bash
-> python3 anomaly/train_classifier.py
+> uv run python anomaly/retrain_kdd_rf.py --data dataset_sdn.csv --out anomaly/pretrained_kdd_rf.pkl
 > python3 anomaly/train_if.py
 > ```
 
@@ -813,7 +813,7 @@ echo $OS_AUTH_URL
 | `anomaly/baseline.py` | Python | Baseline computation for normal traffic |
 | `anomaly/coordinator.py` | Python | Orchestrates the detection pipeline |
 | `anomaly/mitigation.py` | Python | Automated mitigation actions |
-| `anomaly/pretrained_clf.pkl` | Binary | Pre-trained Random Forest classifier |
+| `anomaly/pretrained_kdd_rf.pkl` | Binary | Pre-trained Random Forest replacement classifier |
 | `anomaly/pretrained_if.pkl` | Binary | Pre-trained Isolation Forest model |
 | `anomaly/train_classifier.py` | Python | Script to retrain the Random Forest |
 | `anomaly/train_if.py` | Python | Script to retrain the Isolation Forest |

@@ -45,10 +45,11 @@ export async function getInventoryNodes() {
 }
 
 export async function getNodeTables(nodeId) {
-  const url = `opendaylight-inventory:nodes/node=${encodeURIComponent(nodeId)}/flow-node-inventory:table`;
+  const url = `opendaylight-inventory:nodes/node=${encodeURIComponent(nodeId)}`;
   try {
     const { data } = await flowManagerApi.get(url);
-    return data?.["flow-node-inventory:table"] || [];
+    const node = data?.["opendaylight-inventory:node"]?.[0] || {};
+    return node["flow-node-inventory:table"] || [];
   } catch (error) {
     throw new Error(getErrorBody(error));
   }

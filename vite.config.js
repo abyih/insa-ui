@@ -4,7 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig(({ mode }) => {
 	const env = loadEnv(mode, process.cwd(), "");
-	const odlTarget = env.VITE_ODL_HOST || "http://127.0.0.1:8181";
+	const odlTarget = env.VITE_ODL_HOST || "http://172.27.176.1:8181";
 
 	return {
 		plugins: [react(), tailwindcss()],

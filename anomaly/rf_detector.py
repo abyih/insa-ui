@@ -2,8 +2,8 @@
 Random Forest detector for offline supervised classification.
 
 Features:
-- Uses the 6-feature Kaggle dataset format
-- Loads pretrained RF model from pretrained_clf.pkl
+- Loads the replacement RF bundle from pretrained_kdd_rf.pkl when available
+- Falls back to the legacy 6-feature offline RF model
 - Strictly offline, no baseline collection or online learning
 - Independent feature pipeline from ODL-based detector
 
@@ -17,8 +17,11 @@ RF Features (must match train_classifier.py):
 """
 
 import os
+import time
 import threading
+from collections import deque
 import numpy as np
+import pandas as pd
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import joblib
@@ -47,7 +50,10 @@ RF_HIGH_CONF       = 0.85    # ≥ 0.85 → high_confidence_attack
 FLOOD_BPS_THRESHOLD = 250_000  # bytes per second
 FLOOD_PKT_THRESHOLD = 50_000   # packets per second
 
-PKL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pretrained_clf.pkl")
+PKL_PATHS = [
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "pretrained_kdd_rf.pkl"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "pretrained_clf.pkl"),
+]
 
 # ── RF State ────────────────────────────────────────────────────────────────
 
@@ -59,6 +65,10 @@ class DetectorState:
         self.clf_model         = None
         self.clf_scaler        = None
         self.clf_log_features  = []
+        self.clf_feature_order  = FEATURE_KEYS.copy()
+        self.clf_categorical_features = []
+        self.clf_label_mode    = "binary"
+        self.clf_normal_label  = 0
         self.clf_attack_index  = 1
         self.total_samples     = 0
         self.lock              = threading.Lock()
@@ -126,6 +136,91 @@ class MetricsTracker:
 
 metrics = MetricsTracker()
 
+# ── Recent Events Ring Buffer ──────────────────────────────────────────────
+
+class RecentEvents:
+    """Thread-safe ring buffer of recent detection events for the frontend."""
+    MAX_EVENTS = 200
+
+    def __init__(self):
+        self.events = deque(maxlen=self.MAX_EVENTS)
+        self.lock = threading.Lock()
+        self._id_counter = 0
+
+    def add(self, event: dict):
+        with self.lock:
+            self._id_counter += 1
+            event["id"] = self._id_counter
+            event["ts"] = time.time()
+            self.events.append(event)
+
+    def since(self, after_id: int = 0, limit: int = 100) -> list:
+        with self.lock:
+            result = [e for e in self.events if e["id"] > after_id]
+            return result[-limit:]
+
+    def all(self, limit: int = 100) -> list:
+        with self.lock:
+            return list(self.events)[-limit:]
+
+    def clear(self):
+        with self.lock:
+            self.events.clear()
+            self._id_counter = 0
+
+    def stats(self) -> dict:
+        with self.lock:
+            events = list(self.events)
+        total = len(events)
+        if total == 0:
+            return {"total": 0, "attacks": 0, "suspicious": 0, "normal": 0,
+                    "attack_rate": 0, "avg_prob": 0, "threat_level": "NONE",
+                    "by_protocol": {}, "recent_window": []}
+
+        attacks = sum(1 for e in events if e.get("state") == "ATTACK")
+        suspicious = sum(1 for e in events if e.get("state") == "SUSPICIOUS")
+        normal = total - attacks - suspicious
+        avg_prob = sum(e.get("attack_prob", 0) for e in events) / total
+
+        # Threat level based on last 20 events
+        recent = events[-20:]
+        recent_attacks = sum(1 for e in recent if e.get("state") == "ATTACK")
+        recent_ratio = recent_attacks / len(recent) if recent else 0
+        if recent_ratio >= 0.5:
+            threat = "CRITICAL"
+        elif recent_ratio >= 0.25:
+            threat = "HIGH"
+        elif recent_attacks > 0:
+            threat = "MEDIUM"
+        elif any(e.get("state") == "SUSPICIOUS" for e in recent):
+            threat = "LOW"
+        else:
+            threat = "NONE"
+
+        # Protocol breakdown
+        by_proto = {}
+        for e in events:
+            p = e.get("protocol", "unknown")
+            s = e.get("state", "NORMAL")
+            if p not in by_proto:
+                by_proto[p] = {"total": 0, "attacks": 0}
+            by_proto[p]["total"] += 1
+            if s in ("ATTACK", "SUSPICIOUS"):
+                by_proto[p]["attacks"] += 1
+
+        # Probability timeline (last 50 events)
+        timeline = [{"id": e["id"], "ts": e["ts"], "prob": e.get("attack_prob", 0),
+                     "state": e.get("state", "NORMAL")} for e in events[-50:]]
+
+        return {
+            "total": total, "attacks": attacks, "suspicious": suspicious,
+            "normal": normal, "attack_rate": round(attacks / total * 100, 1),
+            "avg_prob": round(avg_prob, 4), "threat_level": threat,
+            "by_protocol": by_proto, "recent_window": timeline,
+        }
+
+recent_events = RecentEvents()
+
 # ── Decision Engine ────────────────────────────────────────────────────────
 
 class DecisionEngine:
@@ -155,42 +250,49 @@ engine = DecisionEngine()
 
 def load_rf():
     """Load RF model from pickle file."""
-    if not os.path.exists(PKL_PATH):
-        print(f"[RF] ERROR: PKL file not found: {PKL_PATH}")
+    pkl_path = next((path for path in PKL_PATHS if os.path.exists(path)), None)
+    if not pkl_path:
+        print(f"[RF] ERROR: PKL file not found in: {PKL_PATHS}")
         return False
 
     try:
-        data = joblib.load(PKL_PATH)  # ← outside lock
-        
-        # Extract components (matches train_classifier.py format)
-        model = data.get("model")
+        data = joblib.load(pkl_path)  # ← outside lock
+        model = data.get("pipeline") or data.get("model")
         scaler = data.get("scaler")
         log_features = data.get("log_features", LOG_FEATURES_DEFAULT)
-        
-        # Determine attack class index
-        attack_index = 1  # default
-        if model is not None:
-            classes_list = list(model.classes_)
-            attack_class = data.get("attack_class", 1)  # ← numeric default
+        feature_order = data.get("feature_order", FEATURE_KEYS)
+        categorical_features = data.get("categorical_features", [])
+        label_mode = data.get("label_mode", "binary")
+        normal_label = data.get("normal_label", 0 if label_mode == "binary" else "normal")
+        attack_class = data.get("attack_class", 1)
+
+        attack_index = 1
+        final_model = model.named_steps["model"] if hasattr(model, "named_steps") and "model" in model.named_steps else model
+        classes_list = list(getattr(final_model, "classes_", [])) if final_model is not None else []
+        if label_mode == "binary" and model is not None:
             if attack_class in classes_list:
-                attack_index = classes_list.index(attack_class)  # ← list.index()
+                attack_index = classes_list.index(attack_class)
             else:
-                # Default to index 1 if attack class not found
                 attack_index = 1 if len(classes_list) > 1 else 0
-            
-            # Validate scaler
-            if scaler is not None and not hasattr(scaler, "transform"):
-                print("[RF] WARN: scaler missing transform method, using None")
-                scaler = None
-        
+
+        if scaler is not None and not hasattr(scaler, "transform"):
+            print("[RF] WARN: scaler missing transform method, using None")
+            scaler = None
+
         with state.lock:  # ← assign inside lock only
             state.clf_model = model
             state.clf_scaler = scaler
             state.clf_log_features = log_features
+            state.clf_feature_order = list(feature_order)
+            state.clf_categorical_features = list(categorical_features)
+            state.clf_label_mode = label_mode
+            state.clf_normal_label = normal_label
             state.clf_attack_index = attack_index
         
         print(f"[RF] Model: {'ready' if model else 'missing'}")
         print(f"[RF] log_features={log_features}")
+        print(f"[RF] feature_order={feature_order}")
+        print(f"[RF] label_mode={label_mode}")
         print(f"[RF] attack_class index = {attack_index}")
         return True
         
@@ -218,7 +320,21 @@ def to_vector(body):
     
     return vector
 
-def score_rf(vector):
+def build_generic_frame(body):
+    """Build a one-row DataFrame for a replacement pipeline model."""
+    row = {}
+    for key in state.clf_feature_order:
+        if key in state.clf_categorical_features:
+            value = body.get(key, "__missing__")
+            row[key] = "__missing__" if value in (None, "") else str(value)
+        else:
+            try:
+                row[key] = float(body.get(key, 0.0))
+            except (ValueError, TypeError):
+                row[key] = 0.0
+    return pd.DataFrame([row], columns=state.clf_feature_order)
+
+def score_rf(body):
     """
     RF scoring pipeline.
     
@@ -228,52 +344,62 @@ def score_rf(vector):
     3. RobustScaler transformation
     4. predict_proba → attack probability
     """
-    # Ensure vector has 6 features
-    if len(vector) != 6:
-        vector = vector[:6] if len(vector) > 6 else vector + [0.0] * (6 - len(vector))
-    
-    # Build feature index map
+    if state.clf_model is None:
+        return 0.0, False, {}
+
+    # Replacement bundle path.
+    if state.clf_feature_order != FEATURE_KEYS or state.clf_categorical_features:
+        X = build_generic_frame(body)
+        try:
+            proba = state.clf_model.predict_proba(X)[0]
+            classes_list = list(getattr(state.clf_model, "classes_", []))
+            if state.clf_label_mode == "multiclass":
+                if state.clf_normal_label in classes_list:
+                    normal_idx = classes_list.index(state.clf_normal_label)
+                    prob = round(float(1.0 - proba[normal_idx]), 4)
+                else:
+                    prob = round(float(np.max(proba)), 4)
+            else:
+                if state.clf_attack_index < len(proba):
+                    prob = round(float(proba[state.clf_attack_index]), 4)
+                else:
+                    prob = round(float(np.max(proba)), 4)
+        except Exception as e:
+            print(f"[RF] Model prediction error: {e}")
+            prob = 0.05
+
+        is_attack = prob >= adaptive.RF_ATTACK_MIN
+        return prob, is_attack, X.iloc[0].to_dict()
+
+    # Legacy 6-feature path.
+    vector = to_vector(body)
     feat_idx = {f: i for i, f in enumerate(FEATURE_KEYS)}
-    
-    # Flood override check
-    bps_idx = feat_idx["bytes_per_sec"]
-    pkt_idx = feat_idx["pktcount"]
-    
-    bps = float(vector[bps_idx])
-    pkt = float(vector[pkt_idx])
-    
+    bps = float(vector[feat_idx["bytes_per_sec"]])
+    pkt = float(vector[feat_idx["pktcount"]])
+
     if bps > FLOOD_BPS_THRESHOLD or pkt > FLOOD_PKT_THRESHOLD:
-        # Compute flood probability
         prob = min(0.50 + (bps / 2_000_000) + (pkt / 400_000), 0.99)
         prob = round(prob, 4)
         is_attack = prob >= adaptive.RF_ATTACK_MIN
-        return prob, is_attack
-    
-    # Model pipeline
+        return prob, is_attack, dict(zip(FEATURE_KEYS, vector))
+
     X = np.array([vector], dtype=float)
-    
-    # Apply log1p transform
     for fname in state.clf_log_features:
         if fname in feat_idx:
-            idx = feat_idx[fname]
-            X[0, idx] = np.log1p(max(X[0, idx], 0.0))
-    
-    # Apply scaler
+            X[0, feat_idx[fname]] = np.log1p(max(X[0, feat_idx[fname]], 0.0))
+
     if state.clf_scaler is not None:
         X = state.clf_scaler.transform(X)
-    
-    # Predict probability
+
     try:
         proba = state.clf_model.predict_proba(X)[0]
         prob = round(float(proba[state.clf_attack_index]), 4)
     except Exception as e:
-        # Fallback if model fails
         print(f"[RF] Model prediction error: {e}")
         prob = 0.05
-        prob = round(prob, 4)
-    
+
     is_attack = prob >= adaptive.RF_ATTACK_MIN
-    return prob, is_attack
+    return prob, is_attack, dict(zip(FEATURE_KEYS, vector))
 
 # ── Flask App ───────────────────────────────────────────────────────────────
 
@@ -288,9 +414,7 @@ def detect():
         return jsonify({"error": "No JSON body"}), 400
 
     src = str(body.get("src", "global"))
-    vector = to_vector(body)
-
-    attack_prob, is_attack = score_rf(vector)
+    attack_prob, is_attack, features = score_rf(body)
     rf_zone_val = adaptive.rf_zone(attack_prob)
     final, reason, esc = engine.decide(
         src, None, None, attack_prob, is_attack, adaptive.threshold
@@ -299,6 +423,22 @@ def detect():
 
     with state.lock:
         state.total_samples += 1
+
+    # Store in recent events ring buffer for frontend polling
+    recent_events.add({
+        "state":        final,
+        "attack_prob":  attack_prob,
+        "rf_zone":      rf_zone_val,
+        "is_attack":    is_attack,
+        "reason":       reason,
+        "src_ip":       str(body.get("src", "")),
+        "dst_ip":       str(body.get("dst", "")),
+        "protocol":     str(body.get("Protocol", "")),
+        "switch":       str(body.get("switch", "")),
+        "pktcount":     body.get("pktcount", 0),
+        "bytecount":    body.get("bytecount", 0),
+        "pktrate":      body.get("pktrate", 0),
+    })
 
     return jsonify({
         "mode":           "OFFLINE_RF",
@@ -310,7 +450,7 @@ def detect():
         "is_attack":      is_attack,
         "reason":         reason,
         "escalation":     esc,
-        "features":       dict(zip(FEATURE_KEYS, vector)),
+        "features":       features,
         "total_samples":  state.total_samples,
     })
 
@@ -361,6 +501,28 @@ def update_thresholds():
         adaptive.RF_HIGH_CONF = float(data["rf_high_conf"])
     
     return jsonify({"adaptive": adaptive.stats(), "message": "Updated."})
+
+@app.route("/recent", methods=["GET"])
+def get_recent():
+    """Get recent detection events for frontend real-time feed."""
+    after_id = request.args.get("since", 0, type=int)
+    limit = request.args.get("limit", 100, type=int)
+    if after_id > 0:
+        events = recent_events.since(after_id, limit)
+    else:
+        events = recent_events.all(limit)
+    return jsonify({"events": events, "count": len(events)})
+
+@app.route("/stats", methods=["GET"])
+def get_stats():
+    """Get aggregated stats for frontend dashboard."""
+    return jsonify(recent_events.stats())
+
+@app.route("/recent/clear", methods=["POST"])
+def clear_recent():
+    """Clear recent events buffer."""
+    recent_events.clear()
+    return jsonify({"status": "ok", "message": "Recent events cleared"})
 
 # ── Startup ─────────────────────────────────────────────────────────────────
 

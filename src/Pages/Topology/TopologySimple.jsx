@@ -3,16 +3,16 @@ import { DataSet } from "vis-data";
 import { Network } from "vis-network";
 import "./topology.css";
 import { io } from "socket.io-client";
+import { RefreshCw, Layout, Info } from "lucide-react";
 
 const socket = io("http://localhost:5000");
 
 const TopologySimple = ({ topologyData, onReload }) => {
 	const containerRef = useRef(null);
-	const edgesRef = useRef(null); // Track edges outside useEffect
+	const edgesRef = useRef(null);
 
 	const [selectedNode, setSelectedNode] = useState(null);
 
-	// const [devices, setDevices] = useState(null);
 	const findNodeByMac = useCallback(
 		(mac) => {
 			const node = topologyData.nodes.find(
@@ -58,7 +58,7 @@ const TopologySimple = ({ topologyData, onReload }) => {
 		if (!path || path.length < 2) return;
 
 		const edges = edgesRef.current;
-		const highlightColor = { color: "red" };
+		const highlightColor = { color: "#ef4444" };
 
 		for (let i = 0; i < path.length - 1; i++) {
 			const from = path[i];
@@ -73,21 +73,20 @@ const TopologySimple = ({ topologyData, onReload }) => {
 			if (edge) {
 				edges.update({ ...edge, color: highlightColor, width: 4 });
 
-				// Revert after 1s
 				setTimeout(() => {
 					edges.update({
 						...edge,
-						color: { color: "#070707" },
+						color: { color: "#52525b" },
 						width: 2,
 					});
 				}, 1000);
 			}
 		}
 	};
+
 	useEffect(() => {
 		console.log("Topology Data:", topologyData);
 		if (!topologyData) return;
-		// setDevices(extractDevices(topologyData));
 
 		const nodes = new DataSet(topologyData.nodes || []);
 		const edges = new DataSet(topologyData.links || []);
@@ -98,22 +97,22 @@ const TopologySimple = ({ topologyData, onReload }) => {
 
 		const options = {
 			width: "100%",
-			height: "600px",
+			height: "550px",
 			nodes: {
 				size: 30,
-				font: { color: "#2B1B17" },
+				font: { color: "#fafafa", face: "Inter" },
 			},
 			edges: {
 				length: 200,
 				color: {
-					color: "#070707",
-					highlight: "#0066FF",
-					hover: "#33CC33",
+					color: "#27272a",
+					highlight: "#6366f1",
+					hover: "#10b981",
 				},
 				smooth: false,
 			},
 			physics: {
-				barnesHut: { gravitationalConstant: -7025 },
+				barnesHut: { gravitationalConstant: -7000 },
 			},
 			groups: {
 				switch: {
@@ -129,7 +128,6 @@ const TopologySimple = ({ topologyData, onReload }) => {
 
 		const network = new Network(containerRef.current, data, options);
 
-		// Create DOM elements
 		portDots.forEach(({ id, mac, port }) => {
 			const dot = document.createElement("div");
 			dot.className = "port-dot";
@@ -165,7 +163,6 @@ const TopologySimple = ({ topologyData, onReload }) => {
 				const { x, y } = getDotPosition(from, to);
 				const screen = network.canvasToDOM({ x, y });
 
-				console.log(screen);
 				const dot = document.getElementById(id);
 				const popup = dot?.nextSibling;
 
@@ -182,16 +179,16 @@ const TopologySimple = ({ topologyData, onReload }) => {
 		network.on("dragEnd", updateDotPositions);
 		network.on("afterDrawing", updateDotPositions);
 
-		// Handle node click
 		network.on("click", function (params) {
 			if (params.nodes.length > 0) {
 				const nodeId = params.nodes[0];
 				const clickedNode = nodes.get(nodeId);
 				setSelectedNode(clickedNode);
 			} else {
-				setSelectedNode(null); // Clicked empty space
+				setSelectedNode(null);
 			}
 		});
+
 		socket.on("packet", ({ src, dst }) => {
 			const srcNode = findNodeByMac(src);
 			const dstNode = findNodeByMac(dst);
@@ -213,94 +210,61 @@ const TopologySimple = ({ topologyData, onReload }) => {
 			highlightPath(path);
 		});
 
-		// Cleanup on unmount
 		return () => {
 			const dots = document.querySelectorAll(".port-dot, .port-popup");
 			dots.forEach((el) => el.remove());
 		};
 	}, [buildGraph, findNodeByMac, topologyData]);
 
-	// const highlightEdge = (src, dst) => {
-	// 	const edges = edgesRef.current;
-	// 	if (!edges) return;
-
-	// 	// Try matching both directions
-	// 	const edgeId1 = `${src}-${dst}`;
-	// 	const edgeId2 = `${dst}-${src}`;
-	// 	const edge = edges.get(edgeId1) || edges.get(edgeId2);
-	// 	const edgeId = edge?.id;
-
-	// 	if (!edgeId) {
-	// 		console.warn(`No edge found between ${src} and ${dst}`);
-	// 		return;
-	// 	}
-
-	// 	// Highlight
-	// 	edges.update({ id: edgeId, color: { color: "red" }, width: 4 });
-
-	// 	// Revert after 1s
-	// 	setTimeout(() => {
-	// 		edges.update({
-	// 			id: edgeId,
-	// 			color: { color: "#070707" },
-	// 			width: 2,
-	// 		});
-	// 	}, 1000);
-	// };
-
 	return (
-		<div className="topology-container" style={{ display: "flex" }}>
-			{/* Left side: Graph and Button */}
-			<div>
-				<div style={{ marginBottom: "10px" }}>
+		<div className="flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto">
+			{/* Left side: Graph Container */}
+			<div className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl p-6 shadow-lg flex flex-col gap-4">
+				<div className="flex justify-between items-center">
+					<h3 className="text-base font-bold text-zinc-200 flex items-center gap-2">
+						<Layout className="w-5 h-5 text-indigo-400" />
+						Logical Network Topology
+					</h3>
 					<button
 						onClick={onReload}
-						style={{
-							padding: "10px 20px",
-							backgroundColor: "#459BDE",
-							color: "#fff",
-							border: "none",
-							borderRadius: "5px",
-							cursor: "pointer",
-						}}
+						className="px-4 py-2 bg-zinc-50 hover:bg-zinc-200 text-zinc-950 font-bold rounded-lg text-xs flex items-center gap-1.5 transition duration-150 shadow-sm"
 					>
+						<RefreshCw className="w-3.5 h-3.5" />
 						Reload Topology
 					</button>
 				</div>
 				<div
 					ref={containerRef}
-					style={{
-						width: "800px",
-						height: "600px",
-						border: "1px solid #ccc",
-						position: "relative",
-					}}
+					className="w-full h-[550px] border border-zinc-850 rounded-lg relative overflow-hidden bg-zinc-950"
 				/>
 			</div>
 
-			{/* Right side: Node Details Panel */}
-			<div
-				style={{
-					marginLeft: "20px",
-					width: "300px",
-					padding: "10px",
-					border: "1px solid #ccc",
-				}}
-			>
-				<h3>Node Details</h3>
+			{/* Right side: Details Drawer */}
+			<div className="w-full lg:w-80 bg-zinc-900 border border-zinc-800 rounded-xl p-6 shadow-lg h-fit flex flex-col gap-4">
+				<h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider border-b border-zinc-800 pb-3 flex items-center gap-2">
+					<Info className="w-4 h-4 text-zinc-500" />
+					Node Inspector
+				</h3>
 				{selectedNode ? (
-					<div>
-						<p>
-							<strong>ID:</strong> {selectedNode.id}
-						</p>
-						<div
-							dangerouslySetInnerHTML={{
-								__html: selectedNode.title,
-							}}
-						/>
+					<div className="space-y-4">
+						<div>
+							<span className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Device ID</span>
+							<span className="block text-sm font-semibold text-zinc-100 mt-1 break-all">{selectedNode.id}</span>
+						</div>
+						<div className="border-t border-zinc-800 pt-4">
+							<span className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Connected Interfaces</span>
+							<div
+								className="text-xs text-zinc-300 font-mono leading-relaxed space-y-1.5"
+								dangerouslySetInnerHTML={{
+									__html: selectedNode.title,
+								}}
+							/>
+						</div>
 					</div>
 				) : (
-					<p>Click on a node to see details.</p>
+					<p className="text-zinc-500 text-xs leading-relaxed">
+						Click on any network node in the graph map to view interface metadata and connections.
+					</p>
 				)}
 			</div>
 		</div>

@@ -1,5 +1,101 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { getInventoryNodes, getNodeTables, getFlows, deleteFlow, putFlow } from "../api/flowManagerService";
+
+
+function MessageBanner({ message, clearMessage }) {
+  if (!message) return null;
+
+  let errorList = [];
+  let isOdlError = false;
+  let rawJson = null;
+
+  if (typeof message === "string" && (message.trim().startsWith("{") || message.trim().startsWith("["))) {
+    try {
+      const parsed = JSON.parse(message);
+      if (parsed?.errors?.error) {
+        errorList = Array.isArray(parsed.errors.error) ? parsed.errors.error : [parsed.errors.error];
+        isOdlError = true;
+      } else {
+        rawJson = parsed;
+      }
+    } catch {
+      // Treat as plain text
+    }
+  } else if (typeof message === "object") {
+    if (message?.errors?.error) {
+      errorList = Array.isArray(message.errors.error) ? message.errors.error : [message.errors.error];
+      isOdlError = true;
+    } else {
+      rawJson = message;
+    }
+  }
+
+  const isSuccess = !isOdlError && !rawJson && 
+    !message.toLowerCase().includes("fail") && 
+    !message.toLowerCase().includes("error") && 
+    !message.toLowerCase().includes("unable");
+
+  const bg = isSuccess ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.15)";
+  const border = isSuccess ? "rgba(16,185,129,0.25)" : "rgba(239,68,68,0.3)";
+  const color = isSuccess ? "#34d399" : "#f87171";
+
+  return (
+    <div style={{
+      padding: "14px 20px", borderRadius: 12, background: bg,
+      border: `1px solid ${border}`, color: color, fontSize: 13,
+      marginBottom: 20, display: "flex", flexDirection: "column", gap: 10,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontWeight: 700 }}>
+          {isSuccess ? "✓ Status Update" : "⚠️ Configuration Warning"}
+        </span>
+        {clearMessage && (
+          <button 
+            type="button"
+            onClick={clearMessage}
+            style={{ background: "none", border: "none", color: "inherit", fontSize: 14, cursor: "pointer", padding: 0 }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      
+      {isOdlError ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {errorList.map((err, idx) => (
+            <div key={idx} style={{
+              background: "rgba(0,0,0,0.2)", borderRadius: 8, padding: "10px 14px",
+              borderLeft: "4px solid #ef4444"
+            }}>
+              {err["error-type"] && (
+                <div style={{ fontSize: 10, textTransform: "uppercase", opacity: 0.6, fontWeight: 700, marginBottom: 2 }}>
+                  Type: {err["error-type"]} · Tag: {err["error-tag"]}
+                </div>
+              )}
+              <div style={{ fontWeight: 500, color: "#fff" }}>
+                {err["error-message"] || "An unexpected error occurred in OpenDaylight."}
+              </div>
+              {err["error-info"] && (
+                <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4, fontFamily: "monospace" }}>
+                  {err["error-info"]}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : rawJson ? (
+        <pre style={{
+          margin: 0, padding: 10, background: "rgba(0,0,0,0.25)", borderRadius: 8,
+          fontSize: 11, fontFamily: "monospace", overflowX: "auto"
+        }}>
+          {JSON.stringify(rawJson, null, 2)}
+        </pre>
+      ) : (
+        <div style={{ fontWeight: 500 }}>{message}</div>
+      )}
+    </div>
+  );
+}
 
 const emptyForm = {
   flowId: "",
@@ -9,6 +105,49 @@ const emptyForm = {
   outputNodeConnector: "1",
   idleTimeout: "",
   hardTimeout: "",
+};
+
+const S = {
+  page: {
+    minHeight: "100vh",
+    background: "linear-gradient(135deg, #09090b 0%, #18181b 100%)",
+    color: "#fafafa",
+    fontFamily: "'Inter', system-ui, sans-serif",
+    padding: "24px 32px 48px",
+  },
+  glass: {
+    background: "#18181b",
+    border: "1px solid #27272a",
+    borderRadius: 16,
+  },
+  glassInner: {
+    background: "#09090b",
+    border: "1px solid #27272a",
+    borderRadius: 12,
+  },
+  input: {
+    background: "#09090b",
+    border: "1px solid #27272a",
+    borderRadius: 8,
+    color: "#fafafa",
+    padding: "8px 12px",
+    fontSize: 13,
+    outline: "none",
+    width: "100%",
+  },
+  preview: {
+    background: "#09090b",
+    border: "1px solid #27272a",
+    borderRadius: 8,
+    color: "#34d399",
+    fontFamily: "monospace",
+    padding: 10,
+    fontSize: 11,
+    maxHeight: 180,
+    overflowY: "auto",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-all",
+  }
 };
 
 function FlowManager() {
@@ -59,25 +198,27 @@ function FlowManager() {
     loadTables();
   }, [selectedNode]);
 
-  useEffect(() => {
+  const loadFlows = useCallback(async () => {
     if (!selectedNode || !selectedTable) {
       setFlows([]);
       return;
     }
-    const loadFlows = async () => {
-      setLoading(true);
-      try {
-        const rawFlows = await getFlows(selectedNode, selectedTable);
-        setFlows(normalizeFlows(rawFlows));
-      } catch (error) {
-        setMessage(error.message || "Unable to load config flows.");
-        setFlows([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadFlows();
+    setLoading(true);
+    setMessage("");
+    try {
+      const rawFlows = await getFlows(selectedNode, selectedTable);
+      setFlows(normalizeFlows(rawFlows));
+    } catch (error) {
+      setMessage(error.message || "Unable to load config flows.");
+      setFlows([]);
+    } finally {
+      setLoading(false);
+    }
   }, [selectedNode, selectedTable]);
+
+  useEffect(() => {
+    loadFlows();
+  }, [loadFlows]);
 
   const selectedNodeLabel = useMemo(() => {
     const node = nodes.find((candidate) => candidate.id === selectedNode || candidate["id"] === selectedNode);
@@ -102,7 +243,7 @@ function FlowManager() {
     setFormData({
       flowId: flow.id,
       priority: flow.priority ?? 1000,
-      etherType: ethMatch ?? "2048",
+      etherType: ethMatch !== undefined ? String(ethMatch) : "2048",
       actionType,
       outputNodeConnector,
       idleTimeout: flow.idleTimeout === "-" ? "" : flow.idleTimeout,
@@ -117,20 +258,8 @@ function FlowManager() {
     setFormData(emptyForm);
   };
 
-  const refreshFlows = async () => {
-    if (!selectedNode || !selectedTable) return;
-    setLoading(true);
-    try {
-      const rawFlows = await getFlows(selectedNode, selectedTable);
-      setFlows(normalizeFlows(rawFlows));
-    } catch (error) {
-      setMessage(error.message || "Unable to refresh flows.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleDelete = async (flow) => {
+    if (!window.confirm(`Delete configuration flow ${flow.id}? This will remove it from the config datastore.`)) return;
     try {
       await deleteFlow(selectedNode, selectedTable, flow.id);
       setFlows((current) => current.filter((candidate) => candidate.id !== flow.id));
@@ -140,213 +269,290 @@ function FlowManager() {
     }
   };
 
+  // Build the ODL payload dynamically based on form fields
+  const buildOdlPayload = useCallback(() => {
+    const normalizedTableId = Number(selectedTable || 0);
+    return {
+      "flow-node-inventory:flow": [
+        {
+          id: String(formData.flowId || ""),
+          priority: Number(formData.priority || 0),
+          table_id: normalizedTableId,
+          match: {
+            "ethernet-match": {
+              "ethernet-type": {
+                type: Number(formData.etherType || 2048),
+              },
+            },
+          },
+          instructions: {
+            instruction: [
+              {
+                order: 0,
+                "apply-actions": {
+                  action: [
+                    {
+                      order: 0,
+                      ...(formData.actionType === "output"
+                        ? { "output-action": { "output-node-connector": String(formData.outputNodeConnector || "1") } }
+                        : { "drop-action": {} }),
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          ...(formData.idleTimeout ? { "idle-timeout": Number(formData.idleTimeout) } : {}),
+          ...(formData.hardTimeout ? { "hard-timeout": Number(formData.hardTimeout) } : {}),
+        },
+      ],
+    };
+  }, [formData, selectedTable]);
+
   const handleSubmit = async (event) => {
     if (event?.preventDefault) event.preventDefault();
 
+    if (!formData.flowId) {
+      alert("Please enter a flow ID.");
+      return;
+    }
+
     try {
-      const normalizedTableId = Number(selectedTable || 0);
-      const flowBody = {
-        "flow-node-inventory:flow": [
-          {
-            id: String(formData.flowId || ""),
-            priority: Number(formData.priority || 0),
-            table_id: normalizedTableId,
-            match: {
-              "ethernet-match": {
-                "ethernet-type": {
-                  type: Number(formData.etherType || 2048),
-                },
-              },
-            },
-            instructions: {
-              instruction: [
-                {
-                  order: 0,
-                  "apply-actions": {
-                    action: [
-                      {
-                        order: 0,
-                        ...(formData.actionType === "output"
-                          ? { "output-action": { "output-node-connector": String(formData.outputNodeConnector || "1") } }
-                          : { "drop-action": {} }),
-                      },
-                    ],
-                  },
-                },
-              ],
-            },
-            ...(formData.idleTimeout ? { "idle-timeout": Number(formData.idleTimeout) } : {}),
-            ...(formData.hardTimeout ? { "hard-timeout": Number(formData.hardTimeout) } : {}),
-          },
-        ],
-      };
-
-      if (!formData.flowId) {
-        throw new Error("Please enter a flow ID.");
-      }
-
-      console.log("Submitting flow payload", flowBody);
-      setMessage("Saving flow…");
+      const flowBody = buildOdlPayload();
+      setMessage("Saving config flow…");
       await putFlow(selectedNode, selectedTable || 0, formData.flowId, flowBody);
-      await refreshFlows();
+      await loadFlows();
       closeModal();
-      setMessage(editingFlow ? `Updated flow ${formData.flowId}.` : `Created flow ${formData.flowId}.`);
+      setMessage(editingFlow ? `Updated config flow ${formData.flowId}.` : `Created config flow ${formData.flowId}.`);
     } catch (error) {
-      console.error("FlowManager save failed", error);
       setMessage(error.message || "Save failed.");
     }
   };
 
+  const jsonPreview = useMemo(() => {
+    try {
+      return JSON.stringify(buildOdlPayload(), null, 2);
+    } catch {
+      return "Unable to generate preview";
+    }
+  }, [buildOdlPayload]);
+
   return (
-    <div className="min-h-screen bg-slate-50 p-4 sm:p-8 text-slate-800">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Flow Manager</h1>
-          <p className="text-sm text-slate-500">Manage config-datastore flows for the selected node and table.</p>
-        </div>
-        <button
-          onClick={openCreateModal}
-          className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-        >
-          Create Flow
-        </button>
-      </div>
-
-      <div className="mb-4 flex flex-wrap gap-3 rounded border border-slate-200 bg-white p-3 shadow-sm">
-        <label className="flex flex-col text-sm font-medium text-slate-600">
-          Switch
-          <select
-            className="mt-1 rounded border border-slate-300 bg-white px-3 py-2"
-            value={selectedNode}
-            onChange={(event) => setSelectedNode(event.target.value)}
-          >
-            {nodes.map((node) => {
-              const nodeId = node.id || node["id"];
-              return <option key={nodeId} value={nodeId}>{nodeId}</option>;
-            })}
-          </select>
-        </label>
-
-        <label className="flex flex-col text-sm font-medium text-slate-600">
-          Table
-          <select
-            className="mt-1 rounded border border-slate-300 bg-white px-3 py-2"
-            value={selectedTable}
-            onChange={(event) => setSelectedTable(event.target.value)}
-          >
-            {tables.map((table) => (
-              <option key={table.id} value={table.id}>{table.id}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {message ? <div className="mb-4 rounded border border-slate-200 bg-white p-3 text-sm text-slate-700">{message}</div> : null}
-
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
-          Viewing config flows for {selectedNodeLabel || "select a switch"} / table {selectedTable || "-"}
-        </div>
-        {loading ? (
-          <div className="p-8 text-center text-sm text-slate-500">Loading config flows…</div>
-        ) : flows.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-500">No config flows were returned for the selected switch and table.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50 text-left text-slate-600">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Flow ID</th>
-                  <th className="px-4 py-3 font-medium">Priority</th>
-                  <th className="px-4 py-3 font-medium">Match</th>
-                  <th className="px-4 py-3 font-medium">Instructions</th>
-                  <th className="px-4 py-3 font-medium">Timeouts</th>
-                  <th className="px-4 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {flows.map((flow) => (
-                  <tr key={flow.id} className="align-top">
-                    <td className="px-4 py-3 font-semibold text-slate-800">{flow.id}</td>
-                    <td className="px-4 py-3">{flow.priority}</td>
-                    <td className="px-4 py-3 max-w-xs text-slate-600">{flow.match}</td>
-                    <td className="px-4 py-3 max-w-xs text-slate-600">{flow.instructions}</td>
-                    <td className="px-4 py-3 text-slate-600">
-                      <div>Idle: {flow.idleTimeout}</div>
-                      <div>Hard: {flow.hardTimeout}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button onClick={() => openEditModal(flow)} className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">Edit</button>
-                        <button onClick={() => handleDelete(flow)} className="rounded bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700">Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+    <div style={S.page}>
+      <div style={{ maxWidth: 1280, margin: "0 auto" }}>
+        
+        {/* Top Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: "#f1f5f9" }}>Config Flow Rules</h1>
+            <p style={{ margin: 0, fontSize: 13, color: "#94a3b8" }}>Inject persistent configurations into the OpenDaylight CONFIG datastore</p>
           </div>
-        )}
+          <button
+            onClick={openCreateModal}
+            style={{
+              padding: "9px 18px", borderRadius: 10, border: "none", cursor: "pointer",
+              fontSize: 13, fontWeight: 600, background: "#10b981", color: "#fff",
+              transition: "background 0.2s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = "#059669"}
+            onMouseLeave={e => e.currentTarget.style.background = "#10b981"}
+          >
+            + Create Config Flow
+          </button>
+        </div>
+
+        {/* Filters */}
+        <div style={{ ...S.glass, padding: "16px 20px", display: "flex", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, fontWeight: 600, color: "#94a3b8" }}>
+            Active Switch
+            <select
+              style={{ ...S.input, width: 220 }}
+              value={selectedNode}
+              onChange={(event) => setSelectedNode(event.target.value)}
+            >
+              {nodes.map((node) => {
+                const nodeId = node.id || node["id"];
+                return <option key={nodeId} value={nodeId}>{nodeId}</option>;
+              })}
+            </select>
+          </label>
+
+          <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, fontWeight: 600, color: "#94a3b8" }}>
+            Flow Table ID
+            <select
+              style={{ ...S.input, width: 140 }}
+              value={selectedTable}
+              onChange={(event) => setSelectedTable(event.target.value)}
+            >
+              {tables.map((table) => (
+                <option key={table.id} value={table.id}>Table {table.id}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {/* Message Banner */}
+        <MessageBanner message={message} clearMessage={() => setMessage("")} />
+
+        {/* Config Flows Table */}
+        <div style={S.glass}>
+          <div style={{ padding: "14px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 13, color: "#94a3b8" }}>
+              Active configuration configurations for switch <strong style={{ color: "#fff" }}>{selectedNodeLabel || "none"}</strong> · Table <strong style={{ color: "#fff" }}>{selectedTable || "—"}</strong>
+            </span>
+            <button
+              onClick={loadFlows}
+              style={{ padding: "4px 10px", fontSize: 11, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#e2e8f0", borderRadius: 6, cursor: "pointer" }}
+            >
+              ↻ Refresh
+            </button>
+          </div>
+
+          {loading ? (
+            <div style={{ padding: 48, textAlign: "center", color: "#64748b", fontSize: 13 }}>
+              Retrieving config datastore flows…
+            </div>
+          ) : flows.length === 0 ? (
+            <div style={{ padding: 48, textAlign: "center", color: "#64748b", fontSize: 13 }}>
+              No config flows configured in Table {selectedTable || "—"} on this switch.
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: "rgba(255,255,255,0.02)" }}>
+                    {["Flow ID", "Priority", "Ethernet Match", "Action / Instructions", "Timeouts", "Actions"].map(h => (
+                      <th key={h} style={{ padding: "12px 18px", textAlign: "left", color: "#64748b", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {flows.map((flow) => (
+                    <tr key={flow.id} style={{ borderTop: "1px solid rgba(255,255,255,0.04)", verticalAlign: "top" }}>
+                      <td style={{ padding: "14px 18px", fontWeight: 600, color: "#cbd5e1" }}>{flow.id}</td>
+                      <td style={{ padding: "14px 18px" }}>
+                        <span style={{ background: "rgba(255,255,255,0.05)", padding: "2px 8px", borderRadius: 4, fontSize: 11, border: "1px solid rgba(255,255,255,0.08)" }}>
+                          {flow.priority}
+                        </span>
+                      </td>
+                      <td style={{ padding: "14px 18px", color: "#94a3b8" }}>{flow.match}</td>
+                      <td style={{ padding: "14px 18px", color: "#94a3b8" }}>{flow.instructions}</td>
+                      <td style={{ padding: "14px 18px", color: "#64748b", fontSize: 11 }}>
+                        <div>Idle: {flow.idleTimeout}s</div>
+                        <div style={{ marginTop: 2 }}>Hard: {flow.hardTimeout}s</div>
+                      </td>
+                      <td style={{ padding: "14px 18px" }}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => openEditModal(flow)} style={{ padding: "5px 10px", fontSize: 12, background: "#2563eb", border: "none", color: "#fff", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}>Edit</button>
+                          <button onClick={() => handleDelete(flow)} style={{ padding: "5px 10px", fontSize: 12, background: "#dc2626", border: "none", color: "#fff", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}>Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
 
-      {isModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
-          <div className="w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">{editingFlow ? `Edit ${editingFlow.id}` : "Create Flow"}</h2>
-              <button onClick={closeModal} className="text-sm text-slate-500 hover:text-slate-700">Close</button>
-            </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="flex flex-col text-sm font-medium text-slate-600">
-                  Flow ID
-                  <input required className="mt-1 rounded border border-slate-300 px-3 py-2" value={formData.flowId} onChange={(event) => setFormData((current) => ({ ...current, flowId: event.target.value }))} />
-                </label>
-                <label className="flex flex-col text-sm font-medium text-slate-600">
-                  Priority
-                  <input type="number" className="mt-1 rounded border border-slate-300 px-3 py-2" value={formData.priority} onChange={(event) => setFormData((current) => ({ ...current, priority: event.target.value }))} />
-                </label>
+      {/* ── CREATE / EDIT MODAL ────────────────────────────────────────── */}
+      {isModalOpen && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center",
+          justifyContent: "center", background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+          WebkitBackdropFilter: "blur(4px)", padding: 16
+        }}>
+          <div style={{
+            ...S.glass, background: "#18181b", width: "100%", maxWidth: 640,
+            boxShadow: "0 20px 50px rgba(0,0,0,0.4)", overflow: "hidden"
+          }}>
+            <form onSubmit={handleSubmit}>
+              
+              {/* Modal Header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+                  {editingFlow ? `Modify Config Flow (${formData.flowId})` : "Inject Config Flow Rule"}
+                </h2>
+                <button type="button" onClick={closeModal} style={{ background: "none", border: "none", color: "#94a3b8", fontSize: 13, cursor: "pointer" }}>✕ Close</button>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="flex flex-col text-sm font-medium text-slate-600">
-                  Ethernet Type
-                  <input type="number" className="mt-1 rounded border border-slate-300 px-3 py-2" value={formData.etherType} onChange={(event) => setFormData((current) => ({ ...current, etherType: event.target.value }))} />
-                </label>
-                <label className="flex flex-col text-sm font-medium text-slate-600">
-                  Action Type
-                  <select className="mt-1 rounded border border-slate-300 bg-white px-3 py-2" value={formData.actionType} onChange={(event) => setFormData((current) => ({ ...current, actionType: event.target.value }))}>
-                    <option value="drop">drop-action</option>
-                    <option value="output">output-action</option>
-                  </select>
-                </label>
+              {/* Form Content */}
+              <div style={{ padding: "20px 24px", maxHeight: "calc(100vh - 200px)", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+                
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#94a3b8" }}>
+                    Flow ID
+                    <input required disabled={!!editingFlow} style={{ ...S.input, opacity: editingFlow ? 0.6 : 1 }} value={formData.flowId} onChange={(event) => setFormData((current) => ({ ...current, flowId: event.target.value }))} />
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#94a3b8" }}>
+                    Priority (0-65535)
+                    <input type="number" style={S.input} value={formData.priority} onChange={(event) => setFormData((current) => ({ ...current, priority: event.target.value }))} />
+                  </label>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#94a3b8" }}>
+                    Ethernet Type Match
+                    <select
+                      style={S.input}
+                      value={formData.etherType}
+                      onChange={(event) => setFormData((current) => ({ ...current, etherType: event.target.value }))}
+                    >
+                      <option value="2048">IPv4 Traffic (2048)</option>
+                      <option value="2054">ARP Requests (2054)</option>
+                      <option value="34525">IPv6 Traffic (34525)</option>
+                    </select>
+                  </label>
+
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#94a3b8" }}>
+                    Action Block
+                    <select style={S.input} value={formData.actionType} onChange={(event) => setFormData((current) => ({ ...current, actionType: event.target.value }))}>
+                      <option value="drop">Drop Action</option>
+                      <option value="output">Output to Port</option>
+                    </select>
+                  </label>
+                </div>
+
+                {formData.actionType === "output" && (
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#94a3b8" }}>
+                    Destination Port Connector
+                    <input type="text" placeholder="e.g. 1, 2, NORMAL" style={S.input} value={formData.outputNodeConnector} onChange={(event) => setFormData((current) => ({ ...current, outputNodeConnector: event.target.value }))} />
+                  </label>
+                )}
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#94a3b8" }}>
+                    Idle Timeout (Seconds)
+                    <input type="number" placeholder="none" style={S.input} value={formData.idleTimeout} onChange={(event) => setFormData((current) => ({ ...current, idleTimeout: event.target.value }))} />
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#94a3b8" }}>
+                    Hard Timeout (Seconds)
+                    <input type="number" placeholder="none" style={S.input} value={formData.hardTimeout} onChange={(event) => setFormData((current) => ({ ...current, hardTimeout: event.target.value }))} />
+                  </label>
+                </div>
+
+                {/* JSON Preview Box */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8" }}>REST Payload JSON Preview</span>
+                  <div style={S.preview}>
+                    {jsonPreview}
+                  </div>
+                </div>
+
               </div>
 
-              {formData.actionType === "output" ? (
-                <label className="flex flex-col text-sm font-medium text-slate-600">
-                  Output Node Connector
-                  <input type="text" className="mt-1 rounded border border-slate-300 px-3 py-2" value={formData.outputNodeConnector} onChange={(event) => setFormData((current) => ({ ...current, outputNodeConnector: event.target.value }))} />
-                </label>
-              ) : null}
+              {/* Modal Actions */}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "16px 24px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                <button type="button" onClick={closeModal} style={{ padding: "9px 18px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.04)", color: "#94a3b8", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                <button type="submit" style={{ padding: "9px 18px", borderRadius: 10, border: "none", background: "#8b5cf6", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save Config Flow</button>
+              </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="flex flex-col text-sm font-medium text-slate-600">
-                  Idle Timeout
-                  <input type="number" className="mt-1 rounded border border-slate-300 px-3 py-2" value={formData.idleTimeout} onChange={(event) => setFormData((current) => ({ ...current, idleTimeout: event.target.value }))} />
-                </label>
-                <label className="flex flex-col text-sm font-medium text-slate-600">
-                  Hard Timeout
-                  <input type="number" className="mt-1 rounded border border-slate-300 px-3 py-2" value={formData.hardTimeout} onChange={(event) => setFormData((current) => ({ ...current, hardTimeout: event.target.value }))} />
-                </label>
-              </div>
-              <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={closeModal} className="rounded border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">Cancel</button>
-                <button type="button" onClick={handleSubmit} className="rounded bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900">Save Flow</button>
-              </div>
             </form>
           </div>
         </div>
-      ) : null}
+      )}
+
     </div>
   );
 }

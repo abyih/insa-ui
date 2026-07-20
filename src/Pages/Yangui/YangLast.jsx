@@ -50,78 +50,97 @@ const Yangman = () => {
 	};
 
 	return (
-		<div className="sec_outer">
-			<div className="p-6 max-w-3xl mx-auto bg-white rounded-lg shadow-md  sec_outer">
+		<div className="max-w-3xl mx-auto space-y-6">
+			{/* Page title */}
+			<div className="flex flex-col gap-1">
+				<h2 className="text-2xl font-bold tracking-tight text-zinc-50">YANG Module Manager</h2>
+				<p className="text-sm text-zinc-400">Fetch, parse, and execute RESTCONF operations on active YANG schemas.</p>
+			</div>
+
+			<div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-lg space-y-5">
 				{/* YANG Module Selection */}
-				<label className="block mb-2">Select YANG Module:</label>
-				<select
-					className="w-full p-2 border rounded mb-4"
-					onChange={async (e) => {
-						const [module, revision] = e.target.value.split(":");
-						const root = await fetchAndParseYangModule(
-							module,
-							revision
-						);
-						console.log(root);
-						console.log("Paths", collectRestconfPaths(root));
-						setUrl(`/restconf/data/${module}:`);
-					}}
-				>
-					<option value="">-- Select Module --</option>
-					{modules.map((mod) => (
-						<option
-							key={`${mod.name}:${mod.revision}`}
-							value={`${mod.name}:${mod.revision}`}
-						>
-							{mod.name} - {mod.revision}
-						</option>
-					))}
-				</select>
+				<div>
+					<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Select YANG Module</label>
+					<select
+						className="w-full px-3.5 py-2.5 bg-zinc-950 border border-zinc-800 text-zinc-200 rounded-lg text-sm focus:outline-none focus:border-zinc-700 transition"
+						onChange={async (e) => {
+							const [module, revision] = e.target.value.split(":");
+							const root = await fetchAndParseYangModule(
+								module,
+								revision
+							);
+							console.log(root);
+							console.log("Paths", collectRestconfPaths(root));
+							setUrl(`/restconf/data/${module}:`);
+						}}
+					>
+						<option value="">-- Select Module --</option>
+						{modules.map((mod) => (
+							<option
+								key={`${mod.name}:${mod.revision}`}
+								value={`${mod.name}:${mod.revision}`}
+							>
+								{mod.name} - {mod.revision}
+							</option>
+						))}
+					</select>
+				</div>
 
 				{/* URL Input */}
-				<input
-					type="text"
-					value={url}
-					onChange={(e) => setUrl(e.target.value)}
-					className="w-full p-2 border rounded mb-4"
-					placeholder="Enter RESTCONF URL (e.g., /restconf/data/example-module:example)"
-				/>
+				<div>
+					<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">RESTCONF URL Path</label>
+					<input
+						type="text"
+						value={url}
+						onChange={(e) => setUrl(e.target.value)}
+						className="w-full px-3.5 py-2.5 bg-zinc-950 border border-zinc-800 text-zinc-100 rounded-lg text-sm placeholder-zinc-650 focus:outline-none focus:border-zinc-750 transition"
+						placeholder="Enter RESTCONF URL (e.g., /restconf/data/example-module:example)"
+					/>
+				</div>
 
 				{/* Method Selection */}
-				<select
-					value={method}
-					onChange={(e) => setMethod(e.target.value)}
-					className="w-full p-2 border rounded mb-4"
-				>
-					<option value="GET">GET</option>
-					<option value="POST">POST</option>
-					<option value="PUT">PUT</option>
-					<option value="DELETE">DELETE</option>
-				</select>
+				<div>
+					<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">HTTP Method</label>
+					<select
+						value={method}
+						onChange={(e) => setMethod(e.target.value)}
+						className="w-full px-3.5 py-2.5 bg-zinc-950 border border-zinc-800 text-zinc-100 rounded-lg text-sm focus:outline-none focus:border-zinc-700 transition"
+					>
+						<option value="GET">GET</option>
+						<option value="POST">POST</option>
+						<option value="PUT">PUT</option>
+						<option value="DELETE">DELETE</option>
+					</select>
+				</div>
 
 				{/* Body Input (only for POST/PUT) */}
 				{(method === "POST" || method === "PUT") && (
-					<textarea
-						value={body}
-						onChange={(e) => setBody(e.target.value)}
-						className="w-full p-2 border rounded mb-4"
-						placeholder='Enter JSON Body (e.g., { "example": "value" })'
-					/>
+					<div>
+						<label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">JSON Request Body</label>
+						<textarea
+							value={body}
+							onChange={(e) => setBody(e.target.value)}
+							className="w-full p-3.5 bg-zinc-950 border border-zinc-800 text-emerald-400 font-mono text-sm rounded-lg placeholder-zinc-650 focus:outline-none focus:border-zinc-700 transition min-h-[120px]"
+							placeholder='Enter JSON Body (e.g., { "example": "value" })'
+						/>
+					</div>
 				)}
 
 				{/* Send Button */}
 				<button
 					onClick={sendRequest}
-					className="w-full bg-blue-500 text-white p-2 rounded"
+					className="w-full bg-zinc-50 hover:bg-zinc-200 text-zinc-950 font-bold py-2.5 rounded-lg transition duration-200 focus:outline-none shadow-md shadow-zinc-950/20 active:scale-[0.99]"
 				>
 					Send Request
 				</button>
 
 				{/* Display JSON Response */}
 				{response && (
-					<div className="mt-4 p-4 border rounded bg-gray-100">
-						<h3 className="font-bold">Response:</h3>
-						<ReactJson src={response} />
+					<div className="mt-6 p-5 border border-zinc-800 bg-zinc-950 rounded-xl space-y-3">
+						<h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Response Details</h3>
+						<div className="rounded-lg overflow-hidden border border-zinc-900 bg-[#272822] p-4 text-xs font-mono">
+							<ReactJson src={response} theme="monokai" name={false} displayDataTypes={false} />
+						</div>
 					</div>
 				)}
 			</div>
