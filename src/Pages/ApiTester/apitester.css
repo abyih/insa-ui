@@ -1,0 +1,87 @@
+.outer_container {
+  max-width: 800px;
+  margin: 2rem auto;
+  padding: 20px;
+  background-color: #f9f9f9;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  min-height: 80vh;
+  font-family: 'Arial', sans-serif;
+}
+
+.inner_container {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+}
+
+.input-container {
+	display: flex;
+	gap: 10px;
+	align-items: center;
+}
+
+.input-container input[type="text"] {
+	flex-grow: 1;
+	padding: 10px;
+	font-size: 16px;
+	border: 1px solid #ccc;
+	border-radius: 4px;
+	outline: none;
+	transition: border-color 0.3s;
+}
+
+.input-container input[type="text"]:focus {
+	border-color: #007bff;
+}
+
+textarea {
+	width: 100%;
+	padding: 10px;
+	font-size: 16px;
+	border: 1px solid #ccc;
+	border-radius: 4px;
+	outline: none;
+	transition: border-color 0.3s;
+}
+
+textarea:focus {
+	border-color: #007bff;
+}
+
+.send-button {
+	padding: 10px 20px;
+	font-size: 16px;
+	color: #fff;
+	background-color: #007bff;
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background-color 0.3s;
+}
+
+.send-button:hover {
+	background-color: #0056b3;
+}
+
+h3 {
+	color: #333;
+}
+
+pre {
+	background-color: #f4f4f4;
+	padding: 10px;
+	border-radius: 4px;
+	font-size: 14px;
+	overflow-x: auto;
+}
+
+.error {
+	color: #ff4d4d;
+	font-weight: bold;
+}
+
+.response {
+	color: #4caf50;
+	font-weight: bold;
+}

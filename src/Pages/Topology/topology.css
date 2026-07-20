@@ -1,0 +1,249 @@
+/* =====================================================
+   topology.css – Concrete & Production-Grade Version
+   ===================================================== */
+
+/* ---------- Global variables ---------- */
+:root {
+	--bg-main: #f4f6f8;
+	--bg-node: #ffffff;
+	--border-default: #cfd6dd;
+	--border-strong: #4a90e2;
+
+	--text-main: #2c3e50;
+	--text-muted: #6b7280;
+
+	--port-idle: #9ca3af;
+	--port-active: #16a34a;
+	--port-selected: #2563eb;
+
+	--link-default: #94a3b8;
+	--link-active: #2563eb;
+	--link-warning: #f59e0b;
+	--link-error: #dc2626;
+}
+
+/* ---------- Topology container ---------- */
+.topology-container {
+	position: relative;
+	width: 100%;
+	min-height: 100vh;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	background-color: var(--bg-main);
+	overflow: hidden;
+}
+
+/* Canvas wrapper */
+.topology-container > div {
+	position: relative;
+	background: var(--bg-node);
+	border: 1px solid var(--border-default);
+	border-radius: 6px;
+	padding: 16px;
+	box-sizing: border-box;
+}
+
+/* ---------- Node ---------- */
+.node-container {
+	position: relative;
+	padding: 14px;
+	margin: 10px;
+	min-width: 180px;
+	background: var(--bg-node);
+	border: 1px solid var(--border-default);
+	border-radius: 6px;
+	color: var(--text-main);
+	cursor: pointer;
+}
+
+.node-container:hover {
+	border-color: var(--border-strong);
+}
+
+/* Explicit selection state */
+.node-container.selected {
+	border: 2px solid var(--border-strong);
+}
+
+/* ---------- Node header ---------- */
+.node-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	font-size: 14px;
+	font-weight: 600;
+	margin-bottom: 10px;
+}
+
+.node-type {
+	font-size: 11px;
+	color: var(--text-muted);
+	padding: 2px 8px;
+	border: 1px solid var(--border-default);
+	border-radius: 12px;
+}
+
+/* ---------- Port list ---------- */
+.port-list {
+	margin-top: 8px;
+}
+
+.port-item {
+	display: flex;
+	align-items: center;
+	padding: 6px 8px;
+	margin-bottom: 4px;
+	font-family: monospace;
+	font-size: 12px;
+	border-radius: 4px;
+	background: #f9fafb;
+	border: 1px solid transparent;
+}
+
+.port-item:hover {
+	border-color: var(--border-default);
+}
+
+/* ---------- Port dots (topology view) ---------- */
+.port-dot {
+	position: absolute;
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: var(--port-idle);
+	border: 2px solid #ffffff;
+	transform: translate(-50%, -50%);
+	cursor: pointer;
+	z-index: 20;
+}
+
+/* Hover = inspection only */
+.port-dot:hover {
+	background: var(--port-selected);
+}
+
+/* Active = traffic / link up */
+.port-dot.active {
+	background: var(--port-active);
+}
+
+/* Selected = user interaction */
+.port-dot.selected {
+	outline: 2px solid var(--port-selected);
+	outline-offset: 2px;
+}
+
+/* ---------- Port popup (deterministic, no animation) ---------- */
+.port-popup {
+	position: absolute;
+	top: -8px;
+	left: 50%;
+	transform: translate(-50%, -100%);
+	background: #ffffff;
+	border: 1px solid var(--border-default);
+	border-radius: 4px;
+	padding: 8px 10px;
+	font-size: 12px;
+	color: var(--text-main);
+	white-space: nowrap;
+	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+	display: none;
+	z-index: 50;
+}
+
+/* Show popup only on hover */
+.port-dot:hover + .port-popup {
+	display: block;
+}
+
+/* ---------- Connection lines ---------- */
+.connection-line {
+	position: absolute;
+	height: 2px;
+	background-color: var(--link-default);
+	transform-origin: left center;
+	z-index: 10;
+}
+
+/* Link states */
+.connection-line.active {
+	background-color: var(--link-active);
+}
+
+.connection-line.warning {
+	background-color: var(--link-warning);
+}
+
+.connection-line.error {
+	background-color: var(--link-error);
+}
+
+/* ---------- Status indicators ---------- */
+.status-indicator {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	margin-right: 6px;
+}
+
+.status-online {
+	background: var(--port-active);
+}
+
+.status-offline {
+	background: var(--link-error);
+}
+
+.status-warning {
+	background: var(--link-warning);
+}
+
+/* ---------- Legend ---------- */
+.topology-legend {
+	position: absolute;
+	top: 16px;
+	right: 16px;
+	background: #ffffff;
+	border: 1px solid var(--border-default);
+	border-radius: 6px;
+	padding: 10px 12px;
+	font-size: 12px;
+	color: var(--text-main);
+}
+
+.legend-item {
+	display: flex;
+	align-items: center;
+	margin-bottom: 6px;
+}
+
+/* ---------- Zoom controls ---------- */
+.zoom-controls {
+	position: absolute;
+	bottom: 16px;
+	right: 16px;
+	display: flex;
+	gap: 8px;
+}
+
+.zoom-btn {
+	width: 32px;
+	height: 32px;
+	border-radius: 4px;
+	border: 1px solid var(--border-default);
+	background: #ffffff;
+	cursor: pointer;
+	font-size: 16px;
+}
+
+.zoom-btn:hover {
+	border-color: var(--border-strong);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 768px) {
+	.node-container {
+		min-width: 150px;
+	}
+}

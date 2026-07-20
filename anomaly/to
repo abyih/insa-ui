@@ -1,0 +1,20 @@
+RF classifier loaded
+==========================================================
+  Anomaly Detection Service
+==========================================================
+  Mode        : OFFLINE_RF
+  Phase       : DETECTION
+  IF model    : —
+  RF model    : ready
+  Features    : ['APf', 'ABf', 'APkS', 'PPf', 'GSf', 'GDP']
+  RF threshold: 0.50
+==========================================================
+  POST /detect       - submit features
+  GET  /health       - status
+  GET  /mode         - current mode
+  POST /mode         - switch mode {mode: ONLINE|OFFLINE_IF|OFFLINE_RF|OFFLINE_BOTH}
+  POST /retrain      - reset to ONLINE mode
+  GET  /thresholds   - view/tune thresholds
+==========================================================
+ * Serving Flask app 'detector'
+ * Debug mode: off

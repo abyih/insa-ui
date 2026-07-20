@@ -1,0 +1,167 @@
+import { createContext, useContext, useReducer, useEffect, useCallback } from "react";
+import { cache } from "./cache";
+import { getNodes, getNodeConnectors, getConnectionStats } from "../api/api-controller";
+import { mapNodes } from "../mappers/nodes-mapper";
+import { mapFlowStats } from "../mappers/flow-stats-mapper";
+import NetworkTopologySvc from "../Pages/Topology/TopologyService";
+
+// ─── Config ───────────────────────────────────────────────────────────────────
+const POLL_INTERVAL = 15_000;
+
+const TTL = {
+  topology:   20_000,
+  stats:      15_000,
+  nodeDetail: 20_000,
+};
+
+// ─── Reducer ──────────────────────────────────────────────────────────────────
+const init = { data: null, loading: false, error: null };
+
+function reducer(state, action) {
+  switch (action.type) {
+    case "LOADING": return { ...state, loading: true,  error: null };
+    case "SUCCESS": return { data: action.payload, loading: false, error: null };
+    case "ERROR":   return { ...state, loading: false, error: action.payload };
+    default:        return state;
+  }
+}
+
+function detailReducer(state, action) {
+  switch (action.type) {
+    case "LOADING": return { ...state, [action.key]: { data: null, loading: true,  error: null } };
+    case "SUCCESS": return { ...state, [action.key]: { data: action.payload, loading: false, error: null } };
+    case "ERROR":   return { ...state, [action.key]: { data: null, loading: false, error: action.payload } };
+    default:        return state;
+  }
+}
+
+// ─── Context ──────────────────────────────────────────────────────────────────
+const Ctx = createContext(null);
+
+// ─── Provider ─────────────────────────────────────────────────────────────────
+export function DataPipelineProvider({ children }) {
+  const [nodesState,    dispatchNodes]    = useReducer(reducer, init);
+  const [flowsState,    dispatchFlows]    = useReducer(reducer, init);
+  const [topologyState, dispatchTopology] = useReducer(reducer, init);
+  const [statsState,    dispatchStats]    = useReducer(reducer, init);
+  const [detailMap,     dispatchDetail]   = useReducer(detailReducer, {});
+
+  // ── Core fetch: nodes + flowStats ────────────────────────────────────────
+  const fetchCoreData = useCallback(async () => {
+    try {
+      const raw = await getNodes();
+      dispatchNodes({ type: "SUCCESS", payload: mapNodes(raw) });
+      dispatchFlows({ type: "SUCCESS", payload: mapFlowStats(raw) });
+    } catch (err) {
+      const msg = err.message;
+      dispatchNodes({ type: "ERROR", payload: msg });
+      dispatchFlows({ type: "ERROR", payload: msg });
+    }
+  }, []);
+
+  // ── Topology: on-demand ───────────────────────────────────────────────────
+  const fetchTopology = useCallback(async (topoId = "flow:1", force = false) => {
+    const KEY = `topology:${topoId}`;
+    if (!force) {
+      const hit = cache.get(KEY);
+      if (hit) { dispatchTopology({ type: "SUCCESS", payload: hit }); return hit; }
+    }
+    dispatchTopology({ type: "LOADING" });
+    try {
+      const data = await NetworkTopologySvc.getNode(topoId);
+      cache.set(KEY, data, TTL.topology);
+      dispatchTopology({ type: "SUCCESS", payload: data });
+      return data;
+    } catch (err) {
+      dispatchTopology({ type: "ERROR", payload: err.message });
+    }
+  }, []);
+
+  // ── Connection stats: separate lightweight endpoint ───────────────────────
+  const fetchStats = useCallback(async (force = false) => {
+    const KEY = "stats";
+    if (!force) {
+      const hit = cache.get(KEY);
+      if (hit) { dispatchStats({ type: "SUCCESS", payload: hit }); return hit; }
+    }
+    try {
+      const data = await getConnectionStats();
+      cache.set(KEY, data, TTL.stats);
+      dispatchStats({ type: "SUCCESS", payload: data });
+      return data;
+    } catch (err) {
+      dispatchStats({ type: "ERROR", payload: err.message });
+    }
+  }, []);
+
+  // ── Node detail: on-demand ────────────────────────────────────────────────
+  const fetchNodeDetail = useCallback(async (nodeId, force = false) => {
+    const KEY = `nodeDetail:${nodeId}`;
+    if (!force) {
+      const hit = cache.get(KEY);
+      if (hit) { dispatchDetail({ type: "SUCCESS", key: nodeId, payload: hit }); return hit; }
+    }
+    dispatchDetail({ type: "LOADING", key: nodeId });
+    try {
+      const data = await getNodeConnectors(nodeId);
+      cache.set(KEY, data, TTL.nodeDetail);
+      dispatchDetail({ type: "SUCCESS", key: nodeId, payload: data });
+      return data;
+    } catch (err) {
+      dispatchDetail({ type: "ERROR", key: nodeId, payload: err.message });
+    }
+  }, []);
+
+  // ── Auto-poll every 15s after login ───────────────────────────────────────
+  useEffect(() => {
+    if (!localStorage.getItem("isAuthenticated")) return;
+
+    dispatchNodes({ type: "LOADING" });
+    dispatchFlows({ type: "LOADING" });
+    dispatchStats({ type: "LOADING" });
+
+    fetchCoreData();
+    fetchStats();
+
+    const coreTimer  = setInterval(fetchCoreData,              POLL_INTERVAL);
+    const statsTimer = setInterval(() => fetchStats(true),     POLL_INTERVAL);
+
+    return () => {
+      clearInterval(coreTimer);
+      clearInterval(statsTimer);
+    };
+  }, [fetchCoreData, fetchStats]);
+
+  const value = {
+    nodes:     { ...nodesState,    fetch: fetchCoreData },
+    flowStats: { ...flowsState,    fetch: fetchCoreData },
+    topology:  { ...topologyState, fetch: fetchTopology },
+    stats:     { ...statsState,    fetch: fetchStats },
+    nodeDetail: {
+      getSlice: (id) => detailMap[id] ?? init,
+      fetch: fetchNodeDetail,
+    },
+    invalidateAll: () => cache.invalidateAll(),
+  };
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+// ─── Hooks ────────────────────────────────────────────────────────────────────
+export function usePipeline() {
+  const ctx = useContext(Ctx);
+  if (!ctx) throw new Error("usePipeline must be inside DataPipelineProvider");
+  return ctx;
+}
+
+export function useNodes()     { return usePipeline().nodes; }
+export function useFlowStats() { return usePipeline().flowStats; }
+export function useStats()     { return usePipeline().stats; }
+export function useTopology(topoId = "flow:1") {
+  const { topology } = usePipeline();
+  return { ...topology, fetch: (force) => topology.fetch(topoId, force) };
+}
+export function useNodeDetail(nodeId) {
+  const { nodeDetail } = usePipeline();
+  return { ...nodeDetail.getSlice(nodeId), fetch: (force) => nodeDetail.fetch(nodeId, force) };
+}

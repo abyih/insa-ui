@@ -1,0 +1,42 @@
+/* Header styling */
+.header {
+    background-color:#6C86BB;
+    padding: 10px 20px;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    width: 100%; /* Full width of the page */
+    display: flex;
+    justify-content: space-between; /* Space between logo/title and logout */
+    align-items: center; /* Center items vertically */
+  }
+  
+  /* Logo styling */
+  .logo {
+    width: 5%;
+    background-color: #DDDDDD;
+    border-radius: 50%; /* Optional: make it circular */
+  }
+  
+  /* Title styling */
+  .h1 {
+    color:#F4F4F4;
+    font-size: 2.5vw;
+    margin-left: 10px;
+  }
+  
+  /* Logout link styling */
+  .logout {
+    color:#105CA9;
+    padding: 5px 10px;
+    background-color: #FFFFFF; /* Optional: add a background color */
+    border-radius: 5px; /* Rounded corners */
+    transition: background-color 0.3s ease;
+  }
+  
+  .logout:hover {
+    background-color:#A8A8A8;
+   /* Darker shade on hover */
+    text-decoration: none; /* Ensure no underline on hover */
+  }
+  

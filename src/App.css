@@ -1,0 +1,43 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap");
+@import "tailwindcss";
+
+* {
+	font-family: "Inter", "Arial", sans-serif;
+}
+
+p {
+	margin: 0;
+	padding: 0;
+}
+.wrapper {
+	margin-left: 300px;
+	padding-top: 0;
+	width: 800px;
+	height: 800px;
+}
+/* Ensure the layout spans the full viewport */
+.layout {
+	display: flex;
+	flex-direction: column;
+	min-height: 100vh;
+}
+
+.btn {
+	@apply px-4 py-2 rounded;
+}
+.btn-primary {
+	@apply bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600;
+}
+.btn-secondary {
+	@apply bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600;
+}
+.btn-danger {
+	@apply bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600;
+}
+.btn-success {
+	@apply bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600;
+}
+
+button {
+	cursor: pointer;
+}
