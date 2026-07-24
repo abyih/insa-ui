@@ -181,125 +181,150 @@ class FlowTableExtractor:
         return current - previous
 
 
+
+# ── Multi-class RF feature names (must match train_multiclass.py) ────────
+RF_MULTICLASS_FEATURES = [
+    "avg_pkt_size",         # delta_bytes / delta_packets
+    "bytes_per_sec",        # delta_bytes / poll_interval
+    "packets_per_sec",      # delta_packets / poll_interval
+    "active_flow_count",    # current flow table size
+    "flow_duration",        # average flow duration from ODL stats
+    "avg_bytes_per_flow",   # delta_bytes / flow_count
+    "tx_rx_byte_ratio",     # tx_bytes / (rx_bytes + eps)
+    "packet_size_variance", # variance of per-flow byte counts
+]
+
+
 class PortConnectorExtractor:
     """
-    Extracts RF features from ODL data for Random Forest model.
-    
-    RF Features for NEW model (5 features, NO tx_rx_byte_asymmetry):
-    1. avg_pkt_size          - Average packet size: delta_bytes / delta_packets
-    2. total_duration_sec    - Polling interval (15.0 seconds) - FIXED
-    3. bytes_per_sec         - Byte rate: delta_bytes / 15.0
-    4. pktcount              - Packet count: delta_packets
-    5. tx_bytes              - Transmitted bytes: delta_tx_bytes
-    
-    NOTE: Waiting for retrained model. Current implementation uses OLD 6-feature model
-    with calculated tx_rx_byte_asymmetry for compatibility.
+    Extracts 8 RF features from ODL data for the multi-class Random Forest model.
+
+    Features (must match train_multiclass.py FEATURES list):
+      1. avg_pkt_size          - delta_bytes / delta_packets
+      2. bytes_per_sec         - delta_bytes / poll_interval
+      3. packets_per_sec       - delta_packets / poll_interval
+      4. active_flow_count     - number of flows in the table
+      5. flow_duration         - average flow duration from ODL stats (seconds)
+      6. avg_bytes_per_flow    - delta_bytes / flow_count
+      7. tx_rx_byte_ratio      - tx_bytes / (rx_bytes + eps)
+      8. packet_size_variance  - variance of per-flow byte counts
     """
+
+    EPS = 1e-9
 
     def __init__(self, poll_interval: float = 15.0):
         self.poll_interval = poll_interval
-        self._prev_stats: dict = {}  # switch_id -> {"tx_bytes": int, "rx_bytes": int, "avg_duration": float}
-        
+        self._prev_stats: dict = {}  # switch_id -> snapshot
+
     def extract(self, raw_odl: dict, switch_id: str) -> Optional["FeatureVector"]:
         """
-        Extract RF features from ODL data automatically.
-        
+        Extract 8 RF features from ODL data automatically.
         Combines flow table stats and port connector stats.
         Returns None if data is unavailable.
         """
-        # Get flow table statistics
         node = FlowTableExtractor._find_node(raw_odl, switch_id)
         if not node:
             return None
-            
-        # Extract flow statistics
+
+        # Aggregate flow statistics
         cur_packets, cur_bytes, cur_flows, avg_duration_sec = FlowTableExtractor._count(node)
-        
-        # Get previous stats for delta calculation
-        prev = self._prev_stats.get(switch_id, {"packets": 0, "bytes": 0, "tx_bytes": 0, "rx_bytes": 0, "avg_duration": 0.0})
-        
-        # Calculate deltas
+
+        # Per-flow byte counts for variance calculation
+        per_flow_bytes = self._per_flow_byte_counts(node)
+
+        # Previous snapshot for delta calculation
+        prev = self._prev_stats.get(switch_id, {
+            "packets": 0, "bytes": 0, "tx_bytes": 0, "rx_bytes": 0,
+        })
+
+        # Deltas
         d_packets = FlowTableExtractor._delta(cur_packets, prev.get("packets"))
         d_bytes = FlowTableExtractor._delta(cur_bytes, prev.get("bytes"))
-        
-        # Extract port statistics for TX bytes
+
+        # Port statistics (TX/RX)
         port_stats = self._extract_port_stats(node)
         if port_stats is None:
             return None
-            
-        # Update stored statistics
+
+        tx_bytes = float(port_stats["tx_total"])
+        rx_bytes = float(port_stats["rx_total"])
+
+        # Update snapshot
         self._prev_stats[switch_id] = {
             "packets": cur_packets,
             "bytes": cur_bytes,
             "tx_bytes": port_stats["tx_total"],
             "rx_bytes": port_stats["rx_total"],
-            "avg_duration": avg_duration_sec,
         }
-        
-        # Calculate features
+
+        # ── Compute 8 features ────────────────────────────────────────────
         avg_pkt_size = d_bytes / d_packets if d_packets > 0 else 0.0
         bytes_per_sec = d_bytes / self.poll_interval
-        pktcount = float(d_packets)
-        tx_bytes = float(port_stats["delta_tx"])
-        rx_bytes = float(port_stats["delta_rx"])
-        
-        # IMPORTANT DECISION: What should total_duration_sec be?
-        # Option 1: Polling interval (15s) - matches bytes_per_sec calculation
-        # Option 2: Average flow duration from ODL
-        # For now, using polling interval to be consistent with bytes_per_sec
-        total_duration_sec = self.poll_interval
-        
-        # Calculate TX/RX asymmetry (match training formula: |tx - rx| / (tx + rx + EPS))
-        EPS = 1e-9  # Small epsilon to avoid division by zero
-        total_bytes = tx_bytes + rx_bytes + EPS
-        tx_rx_byte_asymmetry = abs(tx_bytes - rx_bytes) / total_bytes
-        
-        # NEW: Using 5 features (tx_rx_byte_asymmetry REMOVED)
+        packets_per_sec = d_packets / self.poll_interval
+        active_flow_count = float(max(cur_flows, 1))
+        flow_duration = avg_duration_sec  # seconds from ODL stats
+        avg_bytes_per_flow = d_bytes / cur_flows if cur_flows > 0 else 0.0
+        tx_rx_byte_ratio = tx_bytes / (rx_bytes + self.EPS)
+
+        # Packet size variance across individual flows
+        if len(per_flow_bytes) >= 2:
+            packet_size_variance = float(np.var(per_flow_bytes))
+        else:
+            packet_size_variance = 0.0
+
         values = np.array([
-            avg_pkt_size,           # avg_pkt_size
-            total_duration_sec,     # total_duration_sec (polling interval)
-            bytes_per_sec,          # bytes_per_sec
-            pktcount,               # pktcount
-            tx_bytes,               # tx_bytes
+            avg_pkt_size,
+            bytes_per_sec,
+            packets_per_sec,
+            active_flow_count,
+            flow_duration,
+            avg_bytes_per_flow,
+            tx_rx_byte_ratio,
+            packet_size_variance,
         ], dtype=float)
-        
+
         return FeatureVector(
             values=values,
             timestamp=time.time(),
             switch_id=switch_id,
             source="port_connector",
         )
-    
+
+    # ── helpers ───────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _per_flow_byte_counts(node: dict) -> list:
+        """Extract per-flow byte counts for variance calculation."""
+        counts = []
+        for table in node.get("flow-node-inventory:table", []):
+            for flow in table.get("flow", []):
+                s = flow.get("opendaylight-flow-statistics:flow-statistics", {})
+                b = int(s.get("byte-count") or s.get("byteCount") or 0)
+                if b > 0:
+                    counts.append(b)
+        return counts
+
     def _extract_port_stats(self, node: dict) -> Optional[dict]:
         """
         Extract TX/RX bytes from node-connector statistics.
-        Returns {"tx_total": int, "rx_total": int, "delta_tx": int, "delta_rx": int}
+        Returns {"tx_total": int, "rx_total": int}
         """
-        # Find node-connectors within the node
         connectors = node.get("opendaylight-inventory:node-connector", [])
-        
+
         tx_total = 0
         rx_total = 0
-        
+
         for conn in connectors:
-            # Get statistics from each connector
-            stats = conn.get("opendaylight-port-statistics:flow-capable-node-connector-statistics", {})
-            
-            # Different ODL versions use different field names
-            tx_bytes = stats.get("bytes", {}).get("transmitted") or stats.get("transmitted", {}).get("bytes") or 0
-            rx_bytes = stats.get("bytes", {}).get("received") or stats.get("received", {}).get("bytes") or 0
-            
-            tx_total += int(tx_bytes)
-            rx_total += int(rx_bytes)
-        
-        # For now, return totals (delta calculation handled at extract level)
-        return {
-            "tx_total": tx_total,
-            "rx_total": rx_total,
-            "delta_tx": tx_total,  # Will be converted to delta in extract()
-            "delta_rx": rx_total,  # Will be converted to delta in extract()
-        }
-    
+            stats = conn.get(
+                "opendaylight-port-statistics:flow-capable-node-connector-statistics", {}
+            )
+            t = stats.get("bytes", {}).get("transmitted") or stats.get("transmitted", {}).get("bytes") or 0
+            r = stats.get("bytes", {}).get("received") or stats.get("received", {}).get("bytes") or 0
+            tx_total += int(t)
+            rx_total += int(r)
+
+        return {"tx_total": tx_total, "rx_total": rx_total}
+
     def reset(self) -> None:
         """Clear stored port statistics."""
         self._prev_stats = {}

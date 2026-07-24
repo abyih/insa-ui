@@ -28,6 +28,10 @@ CFG = SimpleNamespace(
     n_estimators             = 100,
     random_state             = 42,
 
+    # ── Multi-class RF model ───────────────────────────────────────────────
+    rf_model_path        = "pretrained_multiclass_rf.pkl",
+    rf_feature_count     = 8,
+
     # ── System ────────────────────────────────────────────────────────────────
     feature_source   = "flow_table",
     evaluation_mode  = False,

@@ -110,36 +110,36 @@ const emptyForm = {
 const S = {
   page: {
     minHeight: "100vh",
-    background: "linear-gradient(135deg, #09090b 0%, #18181b 100%)",
-    color: "#fafafa",
+    background: "var(--theme-bg)",
+    color: "var(--theme-fg)",
     fontFamily: "'Inter', system-ui, sans-serif",
     padding: "24px 32px 48px",
   },
   glass: {
-    background: "#18181b",
-    border: "1px solid #27272a",
+    background: "var(--theme-card)",
+    border: "1px solid var(--theme-card-border)",
     borderRadius: 16,
   },
   glassInner: {
-    background: "#09090b",
-    border: "1px solid #27272a",
+    background: "var(--theme-bg)",
+    border: "1px solid var(--theme-card-border)",
     borderRadius: 12,
   },
   input: {
-    background: "#09090b",
-    border: "1px solid #27272a",
+    background: "var(--theme-bg)",
+    border: "1px solid var(--theme-input-border)",
     borderRadius: 8,
-    color: "#fafafa",
+    color: "var(--theme-fg)",
     padding: "8px 12px",
     fontSize: 13,
     outline: "none",
     width: "100%",
   },
   preview: {
-    background: "#09090b",
-    border: "1px solid #27272a",
+    background: "var(--theme-bg)",
+    border: "1px solid var(--theme-input-border)",
     borderRadius: 8,
-    color: "#34d399",
+    color: "var(--theme-fg)",
     fontFamily: "monospace",
     padding: 10,
     fontSize: 11,
@@ -184,7 +184,7 @@ function FlowManager() {
         const normalized = (tableList || []).map((table) => ({
           id: table.id ?? table["id"] ?? table["flow-node-inventory:table-id"],
           data: table,
-        }));
+        })).sort((a, b) => Number(a.id) - Number(b.id));
         setTables(normalized);
         if (normalized.length) {
           setSelectedTable((current) => (normalized.some((table) => table.id === current) ? current : normalized[0].id));
@@ -199,7 +199,7 @@ function FlowManager() {
   }, [selectedNode]);
 
   const loadFlows = useCallback(async () => {
-    if (!selectedNode || !selectedTable) {
+    if (!selectedNode || selectedTable === "" || selectedTable === undefined || selectedTable === null) {
       setFlows([]);
       return;
     }
@@ -338,8 +338,7 @@ function FlowManager() {
   }, [buildOdlPayload]);
 
   return (
-    <div style={S.page}>
-      <div style={{ maxWidth: 1280, margin: "0 auto" }}>
+    <div className="max-w-7xl mx-auto space-y-6">
         
         {/* Top Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
@@ -398,7 +397,7 @@ function FlowManager() {
         <div style={S.glass}>
           <div style={{ padding: "14px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 13, color: "#94a3b8" }}>
-              Active configuration configurations for switch <strong style={{ color: "#fff" }}>{selectedNodeLabel || "none"}</strong> · Table <strong style={{ color: "#fff" }}>{selectedTable || "—"}</strong>
+              Active configuration configurations for switch <strong style={{ color: "#fff" }}>{selectedNodeLabel || "none"}</strong> · Table <strong style={{ color: "#fff" }}>{selectedTable !== "" ? selectedTable : "—"}</strong>
             </span>
             <button
               onClick={loadFlows}
@@ -414,7 +413,7 @@ function FlowManager() {
             </div>
           ) : flows.length === 0 ? (
             <div style={{ padding: 48, textAlign: "center", color: "#64748b", fontSize: 13 }}>
-              No config flows configured in Table {selectedTable || "—"} on this switch.
+              No config flows configured in Table {selectedTable !== "" ? selectedTable : "—"} on this switch.
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
@@ -454,7 +453,6 @@ function FlowManager() {
             </div>
           )}
         </div>
-      </div>
 
       {/* ── CREATE / EDIT MODAL ────────────────────────────────────────── */}
       {isModalOpen && (
@@ -464,7 +462,7 @@ function FlowManager() {
           WebkitBackdropFilter: "blur(4px)", padding: 16
         }}>
           <div style={{
-            ...S.glass, background: "#18181b", width: "100%", maxWidth: 640,
+            ...S.glass, background: "var(--theme-card)", width: "100%", maxWidth: 640,
             boxShadow: "0 20px 50px rgba(0,0,0,0.4)", overflow: "hidden"
           }}>
             <form onSubmit={handleSubmit}>

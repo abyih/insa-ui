@@ -1,8 +1,21 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "./ui/card";
 
 const DETECTOR_URL = "http://localhost:5002";
 const POLL_INTERVAL = 1500; // 1.5 seconds for near-instant detection
+
+// Helper to find the latest attack event timestamp from the recent_window
+const getLatestAttackTs = (data) => {
+  if (!data?.recent_window) return 0;
+  for (let i = data.recent_window.length - 1; i >= 0; i--) {
+    const event = data.recent_window[i];
+    if (["ATTACK", "SUSPICIOUS"].includes(event.state)) {
+      return event.ts;
+    }
+  }
+  return 0;
+};
 
 /**
  * Global attack alert overlay — polls the RF detector every 1.5s.
@@ -12,15 +25,12 @@ const POLL_INTERVAL = 1500; // 1.5 seconds for near-instant detection
 export default function GlobalAttackAlert() {
   const [threat, setThreat]       = useState("NONE");
   const [stats, setStats]         = useState(null);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(() => {
+    return !!localStorage.getItem("dismissed_threat_ts");
+  });
   const [show, setShow]           = useState(false);
-  const prevThreat = useRef("NONE");
-  const audioRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
-
-  // Track attack count at time of dismissal
-  const dismissedAtCount = useRef(-1);
 
   const poll = useCallback(async () => {
     try {
@@ -33,12 +43,20 @@ export default function GlobalAttackAlert() {
 
       const isAttackLevel = ["MEDIUM", "HIGH", "CRITICAL"].includes(level);
 
-      // Re-show alert when NEW attacks arrive after dismissal
-      if (isAttackLevel && data.attacks > dismissedAtCount.current) {
+      if (isAttackLevel) {
+        // Re-show alert if there is a new attack event since the dismissal
+        const latestAttackTs = getLatestAttackTs(data);
+        const dismissedTs = parseFloat(localStorage.getItem("dismissed_threat_ts") || "0");
+
+        if (latestAttackTs > dismissedTs) {
+          localStorage.removeItem("dismissed_threat_ts");
+          setDismissed(false);
+        }
+      } else {
+        // Clear dismissal timestamp if threat level drops, to be ready for the next one
+        localStorage.removeItem("dismissed_threat_ts");
         setDismissed(false);
       }
-
-      prevThreat.current = level;
     } catch {
       /* detector not running */
     }
@@ -53,10 +71,15 @@ export default function GlobalAttackAlert() {
   // Don't show overlay on the anomaly page itself (it has its own display)
   const isAnomalyPage = location.pathname === "/anomaly";
 
-  // Handle dismiss — record current attack count so we only re-show for NEW attacks
+  // Handle dismiss — record the latest attack timestamp to only show again for newer attacks
   const handleDismiss = useCallback(() => {
     setDismissed(true);
-    dismissedAtCount.current = stats?.attacks ?? 0;
+    const latestAttackTs = getLatestAttackTs(stats);
+    if (latestAttackTs > 0) {
+      localStorage.setItem("dismissed_threat_ts", latestAttackTs.toString());
+    } else {
+      localStorage.setItem("dismissed_threat_ts", (Date.now() / 1000).toString());
+    }
   }, [stats]);
 
   // Determine visibility
@@ -74,9 +97,9 @@ export default function GlobalAttackAlert() {
   const isHigh = threat === "HIGH";
 
   const config = {
-    MEDIUM:   { gradient: "linear-gradient(135deg, #f97316, #ea580c)", icon: "⚠️",  label: "Suspicious Activity Detected", borderColor: "#fb923c", pulseColor: "rgba(249,115,22,0.15)" },
-    HIGH:     { gradient: "linear-gradient(135deg, #ef4444, #dc2626)", icon: "🚨", label: "Attack Detected",             borderColor: "#f87171", pulseColor: "rgba(239,68,68,0.2)" },
-    CRITICAL: { gradient: "linear-gradient(135deg, #dc2626, #7f1d1d)", icon: "🔴", label: "CRITICAL — Active Attack",     borderColor: "#fca5a5", pulseColor: "rgba(220,38,38,0.25)" },
+    MEDIUM:   { icon: "⚠️",  label: "Suspicious Activity Detected" },
+    HIGH:     { icon: "🚨", label: "Attack Detected" },
+    CRITICAL: { icon: "🔴", label: "CRITICAL — Active Attack" },
   };
   const c = config[threat] || config.MEDIUM;
 
@@ -84,192 +107,99 @@ export default function GlobalAttackAlert() {
     <>
       {/* Full-screen backdrop */}
       <div
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 99998,
-          background: "rgba(0,0,0,0.6)",
-          backdropFilter: "blur(6px)",
-          WebkitBackdropFilter: "blur(6px)",
-          animation: isCritical ? "backdropFlash 2s ease-in-out infinite" : "none",
-        }}
+        className={`fixed inset-0 z-[99998] bg-black/60 backdrop-blur-md ${
+          isCritical ? "animate-[backdropFlash_2s_ease-in-out_infinite]" : ""
+        }`}
         onClick={handleDismiss}
       />
 
       {/* Center alert card */}
-      <div
-        style={{
-          position: "fixed",
-          top: "50%",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
-          zIndex: 99999,
-          width: 480,
-          maxWidth: "calc(100vw - 40px)",
-          animation: "alertSlideIn 0.4s cubic-bezier(0.22, 1, 0.36, 1)",
-        }}
-      >
-        <div
-          style={{
-            background: "#1a1a2e",
-            borderRadius: 20,
-            overflow: "hidden",
-            boxShadow: `0 30px 80px rgba(0,0,0,0.5), 0 0 60px ${c.pulseColor}`,
-            border: `2px solid ${c.borderColor}44`,
-          }}
-        >
-          {/* Top accent bar */}
-          <div style={{
-            height: 4,
-            background: c.gradient,
-            animation: isCritical ? "accentPulse 1.5s ease-in-out infinite" : "none",
-          }} />
+      <Card className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[99999] w-[480px] max-w-[calc(100vw-40px)] animate-[alertSlideIn_0.4s_cubic-bezier(0.22,1,0.36,1)]">
+        <CardHeader className="text-center">
+          <CardTitle className="text-xl font-bold flex items-center justify-center gap-2">
+            <span>{c.icon}</span>
+            <span>{c.label}</span>
+          </CardTitle>
+          <CardDescription>
+            The anomaly detection system has identified malicious network traffic.
+          </CardDescription>
+        </CardHeader>
 
-          {/* Content */}
-          <div style={{ padding: "32px 32px 28px" }}>
-            {/* Icon + title */}
-            <div style={{ textAlign: "center", marginBottom: 24 }}>
-              <div style={{
-                width: 72, height: 72, borderRadius: "50%",
-                background: `${c.borderColor}18`,
-                border: `3px solid ${c.borderColor}55`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                margin: "0 auto 16px",
-                fontSize: 36,
-                animation: isCritical ? "iconPulse 1s ease-in-out infinite" : isHigh ? "iconPulse 2s ease-in-out infinite" : "none",
-              }}>
-                {c.icon}
-              </div>
-              <h2 style={{
-                margin: 0, fontSize: 22, fontWeight: 700,
-                background: c.gradient,
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                backgroundClip: "text",
-                fontFamily: "'Inter', system-ui, sans-serif",
-              }}>
-                {c.label}
-              </h2>
-              <p style={{
-                margin: "8px 0 0", fontSize: 13, color: "#94a3b8",
-                fontFamily: "'Inter', system-ui, sans-serif",
-              }}>
-                The anomaly detection system has identified malicious network traffic
-              </p>
+        <CardContent>
+          {/* Stats boxes */}
+          {stats && (
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              {[
+                { label: "Attacks", value: stats.attacks, color: "text-red-500" },
+                { label: "Attack Rate", value: `${stats.attack_rate}%`, color: "text-orange-500" },
+                { label: "Total Samples", value: stats.total, color: "text-purple-400" },
+              ].map((s, i) => (
+                <div
+                  key={i}
+                  className="bg-zinc-950 border border-zinc-800 rounded-xl py-3 px-2 text-center"
+                >
+                  <p className={`text-2xl font-bold ${s.color}`}>
+                    {s.value}
+                  </p>
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mt-1">
+                    {s.label}
+                  </p>
+                </div>
+              ))}
             </div>
+          )}
 
-            {/* Stats boxes */}
-            {stats && (
-              <div style={{
-                display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10,
-                marginBottom: 24,
-              }}>
-                {[
-                  { label: "Attacks", value: stats.attacks, color: "#ef4444" },
-                  { label: "Attack Rate", value: `${stats.attack_rate}%`, color: "#f97316" },
-                  { label: "Total Samples", value: stats.total, color: "#8b5cf6" },
-                ].map((s, i) => (
-                  <div key={i} style={{
-                    background: "rgba(255,255,255,0.04)",
-                    borderRadius: 12,
-                    padding: "14px 12px",
-                    textAlign: "center",
-                    border: "1px solid rgba(255,255,255,0.06)",
-                  }}>
-                    <p style={{
-                      margin: 0, fontSize: 24, fontWeight: 700, color: s.color,
-                      fontFamily: "'Inter', system-ui, sans-serif",
-                    }}>
-                      {s.value}
-                    </p>
-                    <p style={{
-                      margin: "4px 0 0", fontSize: 10, color: "#64748b",
-                      textTransform: "uppercase", letterSpacing: "0.05em",
-                      fontFamily: "'Inter', system-ui, sans-serif",
-                    }}>
-                      {s.label}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Protocol breakdown (compact) */}
-            {stats?.by_protocol && Object.keys(stats.by_protocol).length > 0 && (
-              <div style={{
-                display: "flex", gap: 8, justifyContent: "center", marginBottom: 24,
-              }}>
-                {Object.entries(stats.by_protocol).map(([proto, v]) => {
-                  const colors = { TCP: "#a78bfa", UDP: "#22d3ee", ICMP: "#fbbf24" };
-                  return (
-                    <span key={proto} style={{
-                      padding: "4px 12px", borderRadius: 8, fontSize: 11, fontWeight: 600,
-                      background: `${colors[proto] || "#64748b"}18`,
-                      color: colors[proto] || "#94a3b8",
-                      border: `1px solid ${colors[proto] || "#64748b"}33`,
-                      fontFamily: "'Inter', system-ui, sans-serif",
-                    }}>
-                      {proto}: {v.attacks} atk / {v.total}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Action buttons */}
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                onClick={() => { handleDismiss(); navigate("/anomaly"); }}
-                style={{
-                  flex: 1, padding: "13px 0", borderRadius: 12, border: "none",
-                  background: c.gradient,
-                  color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer",
-                  fontFamily: "'Inter', system-ui, sans-serif",
-                  boxShadow: `0 4px 20px ${c.pulseColor}`,
-                  transition: "transform 0.15s, box-shadow 0.15s",
-                }}
-                onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = `0 8px 30px ${c.pulseColor}`; }}
-                onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = `0 4px 20px ${c.pulseColor}`; }}
-              >
-                View Live Dashboard →
-              </button>
-              <button
-                onClick={handleDismiss}
-                style={{
-                  padding: "13px 24px", borderRadius: 12,
-                  background: "rgba(255,255,255,0.06)",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  color: "#94a3b8", fontSize: 14, fontWeight: 600, cursor: "pointer",
-                  fontFamily: "'Inter', system-ui, sans-serif",
-                  transition: "background 0.15s",
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
-                onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
-              >
-                Dismiss
-              </button>
+          {/* Protocol breakdown */}
+          {stats?.by_protocol && Object.keys(stats.by_protocol).length > 0 && (
+            <div className="flex flex-wrap gap-2 justify-center">
+              {Object.entries(stats.by_protocol).map(([proto, v]) => {
+                const colors = {
+                  TCP: "bg-purple-500/10 text-purple-400 border-purple-500/30",
+                  UDP: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30",
+                  ICMP: "bg-amber-500/10 text-amber-400 border-amber-500/30",
+                };
+                const colorClass = colors[proto] || "bg-zinc-500/10 text-zinc-400 border-zinc-500/30";
+                return (
+                  <span
+                    key={proto}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold border ${colorClass}`}
+                  >
+                    {proto}: {v.attacks} atk / {v.total}
+                  </span>
+                );
+              })}
             </div>
-          </div>
-        </div>
-      </div>
+          )}
+        </CardContent>
 
-      {/* Animations */}
+        <CardFooter className="flex gap-3">
+          <button
+            onClick={() => {
+              handleDismiss();
+              navigate("/anomaly");
+            }}
+            className="shadcn-btn shadcn-btn-primary flex-1"
+          >
+            View Live Dashboard →
+          </button>
+          <button
+            onClick={handleDismiss}
+            className="shadcn-btn shadcn-btn-secondary"
+          >
+            Dismiss
+          </button>
+        </CardFooter>
+      </Card>
+
+      {/* Custom Keyframe Animations */}
       <style>{`
         @keyframes alertSlideIn {
           from { opacity: 0; transform: translate(-50%, -45%) scale(0.95); }
           to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
         }
-        @keyframes iconPulse {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.12); }
-        }
         @keyframes backdropFlash {
           0%, 100% { background: rgba(0,0,0,0.6); }
-          50% { background: rgba(139,0,0,0.45); }
-        }
-        @keyframes accentPulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
+          50% { background: rgba(139,0,0,0.4); }
         }
       `}</style>
     </>

@@ -15,6 +15,16 @@ class AttackType(Enum):
     PACKET_FLOOD      = auto()   # inflate packet_count
     FLOW_EXHAUSTION   = auto()   # inflate active_flow_count
     SLOW_DRIP         = auto()   # small global increase + noise
+    # ── Multi-class attack types (match InSDN dataset categories) ─────────
+    SYN_FLOOD         = auto()   # TCP SYN flood — high packets, small size
+    UDP_FLOOD         = auto()   # UDP volumetric flood — high bytes + packets
+    ICMP_FLOOD        = auto()   # ICMP flood — moderate packets, fixed size
+    PORT_SCAN         = auto()   # Probe/scan — many flows, low volume each
+    SLOWLORIS         = auto()   # Slow HTTP — long duration, tiny byte rate
+    BRUTE_FORCE       = auto()   # BFA — many small-packet flows
+    WEB_ATTACK        = auto()   # Web exploitation — normal-ish traffic, odd ratios
+    BOTNET            = auto()   # C2 beaconing — periodic, low-volume
+    CONTROL_PLANE_DOS = auto()   # SDN-specific — extreme flow count increase
 
 
 # Indices into FeatureVector.values matching FLOW_TABLE_FEATURES order:
@@ -108,7 +118,7 @@ class Evaluator:
         self._active_attack: AttackType | None = None
         self._attack_remaining: int = 0
 
-    # ── Injection API ─────────────────────────────────────────────────────────
+    # ── Injection API ─────────────────────────────────────────────────────
 
     def start_attack(self, attack_type: AttackType, duration_polls: int = 5):
         self._active_attack   = attack_type
@@ -143,7 +153,7 @@ class Evaluator:
 
         return fv
 
-    # ── Metrics API ───────────────────────────────────────────────────────────
+    # ── Metrics API ───────────────────────────────────────────────────────
 
     def record(self, fv: FeatureVector, predicted_attack: bool):
         true_attack = fv.true_label == "attack"
@@ -159,13 +169,79 @@ class Evaluator:
         self._active_attack     = None
         self._attack_remaining  = 0
 
-    # ── Private ───────────────────────────────────────────────────────────────
+    # ── Private ───────────────────────────────────────────────────────────
 
     def _apply(self, v: np.ndarray, attack: AttackType) -> np.ndarray:
         noise = lambda: float(self._rng.normal(0, 0.05))
 
         if attack == AttackType.VOLUMETRIC_FLOOD:
             v[_IDX["bytes_per_second"]] *= (10.0 + noise())
+
+        elif attack == AttackType.PACKET_FLOOD:
+            v[_IDX["packet_count"]] *= (8.0 + noise())
+
+        elif attack == AttackType.FLOW_EXHAUSTION:
+            v[_IDX["active_flow_count"]] *= (5.0 + noise())
+
+        elif attack == AttackType.SLOW_DRIP:
+            for key in ("bytes_per_second", "packet_count", "active_flow_count"):
+                v[_IDX[key]] *= (1.3 + noise())
+
+        # ── Multi-class injection profiles ────────────────────────────────
+
+        elif attack == AttackType.SYN_FLOOD:
+            # High packet count, small packet size (SYN = ~60 bytes)
+            v[_IDX["packet_count"]] *= (12.0 + noise())
+            v[_IDX["bytes_per_second"]] *= (3.0 + noise())
+            v[_IDX["avg_packet_size"]] = 60.0 + self._rng.normal(0, 5)
+
+        elif attack == AttackType.UDP_FLOOD:
+            # Massive bytes AND packets
+            v[_IDX["bytes_per_second"]] *= (15.0 + noise())
+            v[_IDX["packet_count"]] *= (10.0 + noise())
+
+        elif attack == AttackType.ICMP_FLOOD:
+            # Moderate packet flood, fixed 64-byte ICMP packets
+            v[_IDX["packet_count"]] *= (6.0 + noise())
+            v[_IDX["bytes_per_second"]] *= (4.0 + noise())
+            v[_IDX["avg_packet_size"]] = 64.0 + self._rng.normal(0, 3)
+
+        elif attack == AttackType.PORT_SCAN:
+            # Many flows, very low volume per flow
+            v[_IDX["active_flow_count"]] *= (8.0 + noise())
+            v[_IDX["packet_count"]] *= (2.0 + noise())
+            v[_IDX["bytes_per_second"]] *= (0.5 + abs(noise()))
+            v[_IDX["avg_packet_size"]] = 40.0 + self._rng.normal(0, 5)
+
+        elif attack == AttackType.SLOWLORIS:
+            # Very low byte rate, keeps connections alive
+            v[_IDX["bytes_per_second"]] *= (0.2 + abs(noise()))
+            v[_IDX["packet_count"]] *= (0.5 + abs(noise()))
+            v[_IDX["active_flow_count"]] *= (3.0 + noise())
+
+        elif attack == AttackType.BRUTE_FORCE:
+            # Many small packet bursts, moderate flow count
+            v[_IDX["packet_count"]] *= (4.0 + noise())
+            v[_IDX["bytes_per_second"]] *= (2.0 + noise())
+            v[_IDX["avg_packet_size"]] = 100.0 + self._rng.normal(0, 20)
+
+        elif attack == AttackType.WEB_ATTACK:
+            # Near-normal traffic with subtle anomalies
+            v[_IDX["bytes_per_second"]] *= (1.5 + noise())
+            v[_IDX["packet_count"]] *= (1.8 + noise())
+
+        elif attack == AttackType.BOTNET:
+            # Low-volume periodic beaconing
+            v[_IDX["bytes_per_second"]] *= (0.8 + abs(noise()))
+            v[_IDX["packet_count"]] *= (1.2 + noise())
+            v[_IDX["active_flow_count"]] *= (2.0 + noise())
+
+        elif attack == AttackType.CONTROL_PLANE_DOS:
+            # SDN-specific: massive flow table explosion
+            v[_IDX["active_flow_count"]] *= (20.0 + noise())
+            v[_IDX["packet_count"]] *= (5.0 + noise())
+            v[_IDX["bytes_per_second"]] *= (3.0 + noise())
+
 
         elif attack == AttackType.PACKET_FLOOD:
             v[_IDX["packet_count"]] *= (8.0 + noise())

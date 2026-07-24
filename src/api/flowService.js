@@ -39,11 +39,14 @@ export async function getInventoryNodes() {
 export async function getNodeTables(nodeId) {
   try {
     const { data } = await flowApi.get(
-      `opendaylight-inventory:nodes/node=${nodeId}?content=nonconfig`
+      `opendaylight-inventory:nodes/node=${encodeURIComponent(nodeId)}?content=nonconfig`
     );
     const node = data?.["opendaylight-inventory:node"]?.[0] || {};
     return node["flow-node-inventory:table"] || [];
   } catch (error) {
+    if (error?.response?.status === 404 || error?.response?.status === 409) {
+      return [];
+    }
     throw new Error(getErrorMessage(error));
   }
 }
@@ -51,10 +54,15 @@ export async function getNodeTables(nodeId) {
 export async function getFlows(nodeId, tableId) {
   try {
     const { data } = await flowApi.get(
-      `opendaylight-inventory:nodes/node=${nodeId}/flow-node-inventory:table=${tableId}/flow?content=nonconfig`
+      `opendaylight-inventory:nodes/node=${encodeURIComponent(nodeId)}/flow-node-inventory:table=${encodeURIComponent(tableId)}?content=nonconfig`
     );
-    return data?.["flow-node-inventory:flow"] || [];
+    const tableList = data?.["flow-node-inventory:table"] || [];
+    const table = tableList.find(t => String(t.id) === String(tableId)) || tableList[0] || {};
+    return table.flow || [];
   } catch (error) {
+    if (error?.response?.status === 404 || error?.response?.status === 409) {
+      return [];
+    }
     throw new Error(getErrorMessage(error));
   }
 }
@@ -62,7 +70,7 @@ export async function getFlows(nodeId, tableId) {
 export async function deleteFlow(nodeId, tableId, flowId) {
   try {
     await flowApi.delete(
-      `opendaylight-inventory:nodes/node=${nodeId}/flow-node-inventory:table=${tableId}/flow=${flowId}`
+      `opendaylight-inventory:nodes/node=${encodeURIComponent(nodeId)}/flow-node-inventory:table=${encodeURIComponent(tableId)}/flow-node-inventory:flow=${encodeURIComponent(flowId)}`
     );
     return true;
   } catch (error) {
@@ -73,7 +81,7 @@ export async function deleteFlow(nodeId, tableId, flowId) {
 export async function putFlow(nodeId, tableId, flowId, flowBody) {
   try {
     await flowApi.put(
-      `opendaylight-inventory:nodes/node=${nodeId}/flow-node-inventory:table=${tableId}/flow=${flowId}`,
+      `opendaylight-inventory:nodes/node=${encodeURIComponent(nodeId)}/flow-node-inventory:table=${encodeURIComponent(tableId)}/flow-node-inventory:flow=${encodeURIComponent(flowId)}`,
       flowBody
     );
     return true;

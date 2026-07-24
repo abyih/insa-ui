@@ -76,330 +76,199 @@ def _jitter(base, pct=0.15):
 
 
 def normal_traffic(i: int) -> dict:
-    """Benign baseline — low packet rate, balanced TX/RX, moderate duration."""
-    dur = random.uniform(200, 500)
-    dur_nsec = random.randint(100_000_000, 900_000_000)
-    pktcount = random.randint(500, 8000)
-    bytecount = pktcount * random.randint(400, 900)
-    flows = random.randint(3, 10)
-    tx = random.randint(50_000_000, 150_000_000)
-    rx = int(tx * random.uniform(0.85, 1.15))
-    kbps = random.randint(500, 1500)
+    """Benign baseline — matches InSDN Normal class median feature profile."""
     return {
-        "pktcount":    pktcount,
-        "bytecount":   bytecount,
-        "dur":         int(dur),
-        "dur_nsec":    dur_nsec,
-        "tot_dur":     int(dur * 1e9 + dur_nsec),
-        "flows":       flows,
-        "packetins":   random.randint(3000, 7000),
-        "pktperflow":  pktcount // max(flows, 1),
-        "byteperflow": bytecount // max(flows, 1),
-        "pktrate":     int(pktcount / max(dur, 1)),
-        "Pairflow":    random.choice([0, 1]),
-        "port_no":     random.choice(PORTS),
-        "tx_bytes":    tx,
-        "rx_bytes":    rx,
-        "tx_kbps":     kbps,
-        "rx_kbps":     int(kbps * random.uniform(0.9, 1.1)),
-        "tot_kbps":    kbps * 2,
-        "switch":      str(random.choice(SWITCHES)),
-        "src":         random.choice(SRC_IPS),
-        "dst":         random.choice(DST_IPS),
-        "Protocol":    random.choice(["TCP", "UDP", "ICMP"]),
+        # ── 8 ODL features (direct injection, calibrated to InSDN Normal medians) ──
+        "avg_pkt_size":         _jitter(170.5),
+        "bytes_per_sec":        _jitter(74484.93),
+        "packets_per_sec":      _jitter(791.77),
+        "active_flow_count":    _jitter(4.0),
+        "flow_duration":        _jitter(0.0048),
+        "avg_bytes_per_flow":   _jitter(34.0),
+        "tx_rx_byte_ratio":     _jitter(0.0637),
+        "packet_size_variance": _jitter(22450.45),
+        # ── Metadata for display ──
+        "switch":  str(random.choice(SWITCHES)),
+        "src":     random.choice(SRC_IPS),
+        "dst":     random.choice(DST_IPS),
+        "Protocol": random.choice(["TCP", "UDP", "ICMP"]),
     }
 
 
 def tcp_syn_flood(i: int) -> dict:
     """
-    TCP SYN Flood — massive packet counts, tiny packets (SYN = ~60 bytes),
-    very high pktrate, extremely asymmetric TX vs RX (mostly outbound),
-    short duration bursts, single destination.
+    TCP SYN Flood → DDoS class.
+    InSDN DDoS median: packets_per_sec=142857, avg_pkt_size=0, bytes_per_sec=0.
+    Characterized by extremely high packet rate with zero-length payloads.
     """
-    dur = random.randint(10, 60)
-    pktcount = int(_jitter(200_000 + i * 8_000))
-    bytecount = pktcount * random.randint(54, 74)  # SYN packets are small
-    flows = random.randint(1, 3)
-    tx = int(_jitter(250_000_000 + i * 5_000_000))
-    rx = random.randint(500, 5000)  # almost no replies (half-open)
     return {
-        "pktcount":    pktcount,
-        "bytecount":   bytecount,
-        "dur":         dur,
-        "dur_nsec":    random.randint(0, 999_000_000),
-        "tot_dur":     int(dur * 1e9),
-        "flows":       flows,
-        "packetins":   int(_jitter(15_000)),
-        "pktperflow":  pktcount // max(flows, 1),
-        "byteperflow": bytecount // max(flows, 1),
-        "pktrate":     int(pktcount / max(dur, 1)),
-        "Pairflow":    0,
-        "port_no":     random.choice(PORTS[:3]),
-        "tx_bytes":    tx,
-        "rx_bytes":    rx,
-        "tx_kbps":     int(tx / 1024 / max(dur, 1)),
-        "rx_kbps":     0,
-        "tot_kbps":    int(tx / 1024 / max(dur, 1)),
-        "switch":      str(random.choice(SWITCHES[:5])),
-        "src":         random.choice(SRC_IPS[:5]),
-        "dst":         "10.0.0.8",  # single target
-        "Protocol":    "TCP",
+        "avg_pkt_size":         _jitter(0.0, 0.0),      # SYN packets have 0 payload
+        "bytes_per_sec":        _jitter(0.0, 0.0),
+        "packets_per_sec":      _jitter(142857.0 + i * 5000),
+        "active_flow_count":    _jitter(2.0),
+        "flow_duration":        _jitter(0.0001, 0.5),
+        "avg_bytes_per_flow":   _jitter(0.0, 0.0),
+        "tx_rx_byte_ratio":     _jitter(0.0, 0.0),
+        "packet_size_variance": _jitter(0.0, 0.0),
+        "switch":  str(random.choice(SWITCHES[:5])),
+        "src":     random.choice(SRC_IPS[:5]),
+        "dst":     "10.0.0.8",
+        "Protocol": "TCP",
     }
 
 
 def udp_flood(i: int) -> dict:
     """
-    UDP Volumetric Flood — high bytecount, large packets (1400+ bytes),
-    enormous bytes_per_second, very few flows, low duration.
+    UDP Volumetric Flood → DDoS class.
+    Similar to TCP SYN flood but via UDP — extreme packet rate, minimal payload.
     """
-    dur = random.randint(15, 80)
-    pktcount = int(_jitter(150_000 + i * 6_000))
-    bytecount = pktcount * random.randint(1200, 1480)
-    flows = random.randint(1, 3)
-    tx = int(_jitter(300_000_000 + i * 10_000_000))
-    rx = random.randint(1000, 8000)
     return {
-        "pktcount":    pktcount,
-        "bytecount":   bytecount,
-        "dur":         dur,
-        "dur_nsec":    random.randint(0, 999_000_000),
-        "tot_dur":     int(dur * 1e9),
-        "flows":       flows,
-        "packetins":   int(_jitter(12_000)),
-        "pktperflow":  pktcount // max(flows, 1),
-        "byteperflow": bytecount // max(flows, 1),
-        "pktrate":     int(pktcount / max(dur, 1)),
-        "Pairflow":    0,
-        "port_no":     random.choice(PORTS[:3]),
-        "tx_bytes":    tx,
-        "rx_bytes":    rx,
-        "tx_kbps":     int(tx / 1024 / max(dur, 1)),
-        "rx_kbps":     0,
-        "tot_kbps":    int(tx / 1024 / max(dur, 1)),
-        "switch":      str(random.choice(SWITCHES[:4])),
-        "src":         random.choice(SRC_IPS[:3]),
-        "dst":         "10.0.0.5",
-        "Protocol":    "UDP",
+        "avg_pkt_size":         _jitter(0.0, 0.0),
+        "bytes_per_sec":        _jitter(0.0, 0.0),
+        "packets_per_sec":      _jitter(160000.0 + i * 8000),
+        "active_flow_count":    _jitter(2.0),
+        "flow_duration":        _jitter(0.0001, 0.5),
+        "avg_bytes_per_flow":   _jitter(0.0, 0.0),
+        "tx_rx_byte_ratio":     _jitter(0.0, 0.0),
+        "packet_size_variance": _jitter(0.0, 0.0),
+        "switch":  str(random.choice(SWITCHES[:4])),
+        "src":     random.choice(SRC_IPS[:3]),
+        "dst":     "10.0.0.5",
+        "Protocol": "UDP",
     }
 
 
 def icmp_flood(i: int) -> dict:
     """
-    ICMP Flood / Ping of Death — huge ICMP packet count, oversized ping
-    payloads (>1000 bytes), extreme pktrate, single source hammering.
+    ICMP Flood → DDoS class.
+    Massive ICMP packet rate, zero-payload signature like InSDN DDoS.
     """
-    dur = random.randint(20, 90)
-    pktcount = int(_jitter(180_000 + i * 5_000))
-    bytecount = pktcount * random.randint(1000, 1500)  # oversized ICMP
-    flows = random.randint(1, 2)
-    tx = int(_jitter(200_000_000 + i * 4_000_000))
-    rx = random.randint(2000, 10_000)
     return {
-        "pktcount":    pktcount,
-        "bytecount":   bytecount,
-        "dur":         dur,
-        "dur_nsec":    random.randint(0, 999_000_000),
-        "tot_dur":     int(dur * 1e9),
-        "flows":       flows,
-        "packetins":   int(_jitter(10_000)),
-        "pktperflow":  pktcount // max(flows, 1),
-        "byteperflow": bytecount // max(flows, 1),
-        "pktrate":     int(pktcount / max(dur, 1)),
-        "Pairflow":    0,
-        "port_no":     random.choice(PORTS[:2]),
-        "tx_bytes":    tx,
-        "rx_bytes":    rx,
-        "tx_kbps":     int(tx / 1024 / max(dur, 1)),
-        "rx_kbps":     int(rx / 1024 / max(dur, 1)),
-        "tot_kbps":    int((tx + rx) / 1024 / max(dur, 1)),
-        "switch":      str(random.choice(SWITCHES[:3])),
-        "src":         "10.0.0.1",
-        "dst":         "10.0.0.10",
-        "Protocol":    "ICMP",
+        "avg_pkt_size":         _jitter(0.0, 0.0),
+        "bytes_per_sec":        _jitter(0.0, 0.0),
+        "packets_per_sec":      _jitter(130000.0 + i * 4000),
+        "active_flow_count":    _jitter(2.0),
+        "flow_duration":        _jitter(0.0001, 0.5),
+        "avg_bytes_per_flow":   _jitter(0.0, 0.0),
+        "tx_rx_byte_ratio":     _jitter(0.0, 0.0),
+        "packet_size_variance": _jitter(0.0, 0.0),
+        "switch":  str(random.choice(SWITCHES[:3])),
+        "src":     "10.0.0.1",
+        "dst":     "10.0.0.10",
+        "Protocol": "ICMP",
     }
 
 
 def port_scan(i: int) -> dict:
     """
-    Port Scan — many small TCP SYN probes across many flows, tiny packets,
-    very high flow count relative to packet count, rapid probing.
+    Port Scan → Probe class.
+    InSDN Probe median: packets_per_sec=496, avg_pkt_size=0, flow_duration=0.005.
+    Characterized by moderate packet rate, zero payload, short probes.
     """
-    dur = random.randint(5, 40)
-    flows = int(_jitter(200 + i * 10))  # many unique flows = many ports probed
-    pktcount = flows * random.randint(1, 3)  # 1-3 packets per probed port
-    bytecount = pktcount * random.randint(54, 80)
-    tx = int(_jitter(5_000_000))
-    rx = random.randint(500, 3000)  # RSTs or silence
     return {
-        "pktcount":    pktcount,
-        "bytecount":   bytecount,
-        "dur":         dur,
-        "dur_nsec":    random.randint(0, 999_000_000),
-        "tot_dur":     int(dur * 1e9),
-        "flows":       flows,
-        "packetins":   int(_jitter(8_000 + i * 200)),
-        "pktperflow":  max(pktcount // max(flows, 1), 1),
-        "byteperflow": bytecount // max(flows, 1),
-        "pktrate":     int(pktcount / max(dur, 1)),
-        "Pairflow":    0,
-        "port_no":     random.choice(PORTS),
-        "tx_bytes":    tx,
-        "rx_bytes":    rx,
-        "tx_kbps":     int(tx / 1024 / max(dur, 1)),
-        "rx_kbps":     0,
-        "tot_kbps":    int(tx / 1024 / max(dur, 1)),
-        "switch":      str(random.choice(SWITCHES)),
-        "src":         "10.0.0.4",
-        "dst":         random.choice(DST_IPS),  # scanning many hosts
-        "Protocol":    "TCP",
+        "avg_pkt_size":         _jitter(0.0, 0.0),
+        "bytes_per_sec":        _jitter(0.0, 0.0),
+        "packets_per_sec":      _jitter(495.9 + i * 10),
+        "active_flow_count":    _jitter(2.0),
+        "flow_duration":        _jitter(0.005),
+        "avg_bytes_per_flow":   _jitter(0.0, 0.0),
+        "tx_rx_byte_ratio":     _jitter(0.0, 0.0),
+        "packet_size_variance": _jitter(0.0, 0.0),
+        "switch":  str(random.choice(SWITCHES)),
+        "src":     "10.0.0.4",
+        "dst":     random.choice(DST_IPS),
+        "Protocol": "TCP",
     }
 
 
 def slowloris(i: int) -> dict:
     """
-    Slowloris — slow drip TCP connections: very long duration, very low
-    pktrate, many persistent flows kept half-open, tiny bytecount.
+    Slowloris → DoS class.
+    InSDN DoS median: packets_per_sec=598, avg_pkt_size=53.8, bytes_per_sec=176,
+    active_flow_count=7, packet_size_variance=14225.
+    Slow HTTP exhaustion maps to DoS behavior in InSDN.
     """
-    dur = random.randint(500, 1800)  # very long-lived connections
-    flows = int(_jitter(50 + i * 5))
-    pktcount = flows * random.randint(2, 6)  # minimal data per connection
-    bytecount = pktcount * random.randint(40, 120)
-    tx = random.randint(10_000, 80_000)
-    rx = random.randint(5_000, 40_000)
     return {
-        "pktcount":    pktcount,
-        "bytecount":   bytecount,
-        "dur":         dur,
-        "dur_nsec":    random.randint(0, 999_000_000),
-        "tot_dur":     int(dur * 1e9),
-        "flows":       flows,
-        "packetins":   random.randint(200, 800),
-        "pktperflow":  max(pktcount // max(flows, 1), 1),
-        "byteperflow": bytecount // max(flows, 1),
-        "pktrate":     max(int(pktcount / max(dur, 1)), 1),
-        "Pairflow":    1,
-        "port_no":     random.choice(PORTS[:3]),
-        "tx_bytes":    tx,
-        "rx_bytes":    rx,
-        "tx_kbps":     0,
-        "rx_kbps":     0,
-        "tot_kbps":    0,
-        "switch":      str(random.choice(SWITCHES[:4])),
-        "src":         "10.0.0.3",
-        "dst":         "10.0.0.7",
-        "Protocol":    "TCP",
+        "avg_pkt_size":         _jitter(53.78),
+        "bytes_per_sec":        _jitter(176.20),
+        "packets_per_sec":      _jitter(598.47 + i * 20),
+        "active_flow_count":    _jitter(7.0),
+        "flow_duration":        _jitter(0.0102),
+        "avg_bytes_per_flow":   _jitter(8.5),
+        "tx_rx_byte_ratio":     _jitter(0.0073),
+        "packet_size_variance": _jitter(14225.49),
+        "switch":  str(random.choice(SWITCHES[:4])),
+        "src":     "10.0.0.3",
+        "dst":     "10.0.0.7",
+        "Protocol": "TCP",
     }
 
 
 def dns_amplification(i: int) -> dict:
     """
-    DNS Amplification — spoofed UDP queries to open resolvers producing
-    massive inbound traffic: RX >> TX, huge bytecount, small pktcount on
-    the query side but enormous response bytes.
+    DNS Amplification → DDoS class.
+    Amplification attacks produce extreme packet rates like InSDN DDoS.
     """
-    dur = random.randint(20, 100)
-    pktcount = int(_jitter(80_000 + i * 3_000))
-    bytecount = pktcount * random.randint(800, 4000)  # amplified responses
-    flows = random.randint(2, 6)
-    tx = random.randint(50_000, 200_000)  # small queries
-    rx = int(_jitter(400_000_000 + i * 8_000_000))  # huge amplified replies
     return {
-        "pktcount":    pktcount,
-        "bytecount":   bytecount,
-        "dur":         dur,
-        "dur_nsec":    random.randint(0, 999_000_000),
-        "tot_dur":     int(dur * 1e9),
-        "flows":       flows,
-        "packetins":   int(_jitter(9_000)),
-        "pktperflow":  pktcount // max(flows, 1),
-        "byteperflow": bytecount // max(flows, 1),
-        "pktrate":     int(pktcount / max(dur, 1)),
-        "Pairflow":    0,
-        "port_no":     random.choice(PORTS[:3]),
-        "tx_bytes":    tx,
-        "rx_bytes":    rx,
-        "tx_kbps":     int(tx / 1024 / max(dur, 1)),
-        "rx_kbps":     int(rx / 1024 / max(dur, 1)),
-        "tot_kbps":    int((tx + rx) / 1024 / max(dur, 1)),
-        "switch":      str(random.choice(SWITCHES[:5])),
-        "src":         "10.0.0.2",
-        "dst":         "10.0.0.13",
-        "Protocol":    "UDP",
+        "avg_pkt_size":         _jitter(0.0, 0.0),
+        "bytes_per_sec":        _jitter(0.0, 0.0),
+        "packets_per_sec":      _jitter(150000.0 + i * 6000),
+        "active_flow_count":    _jitter(2.0),
+        "flow_duration":        _jitter(0.0001, 0.5),
+        "avg_bytes_per_flow":   _jitter(0.0, 0.0),
+        "tx_rx_byte_ratio":     _jitter(0.0, 0.0),
+        "packet_size_variance": _jitter(0.0, 0.0),
+        "switch":  str(random.choice(SWITCHES[:5])),
+        "src":     "10.0.0.2",
+        "dst":     "10.0.0.13",
+        "Protocol": "UDP",
     }
 
 
 def brute_force(i: int) -> dict:
     """
-    SSH / Login Brute Force — rapid repeated TCP connections to port 22,
-    medium packet size (credentials), high packetins, moderate pktrate,
-    many short-lived flows.
+    SSH Brute Force → Brute_Force class.
+    InSDN Brute_Force median: packets_per_sec=359, avg_pkt_size=0,
+    active_flow_count=4, flow_duration=0.017.
+    Moderate packet rate, zero payload, slightly longer flow duration.
     """
-    dur = random.randint(30, 150)
-    flows = int(_jitter(80 + i * 5))
-    pktcount = flows * random.randint(8, 20)  # login attempt packets
-    bytecount = pktcount * random.randint(180, 350)
-    tx = int(_jitter(30_000_000 + i * 500_000))
-    rx = int(_jitter(15_000_000))
     return {
-        "pktcount":    pktcount,
-        "bytecount":   bytecount,
-        "dur":         dur,
-        "dur_nsec":    random.randint(0, 999_000_000),
-        "tot_dur":     int(dur * 1e9),
-        "flows":       flows,
-        "packetins":   int(_jitter(10_000 + i * 300)),
-        "pktperflow":  pktcount // max(flows, 1),
-        "byteperflow": bytecount // max(flows, 1),
-        "pktrate":     int(pktcount / max(dur, 1)),
-        "Pairflow":    1,
-        "port_no":     random.choice(PORTS[:3]),
-        "tx_bytes":    tx,
-        "rx_bytes":    rx,
-        "tx_kbps":     int(tx / 1024 / max(dur, 1)),
-        "rx_kbps":     int(rx / 1024 / max(dur, 1)),
-        "tot_kbps":    int((tx + rx) / 1024 / max(dur, 1)),
-        "switch":      str(random.choice(SWITCHES[:5])),
-        "src":         "10.0.0.6",
-        "dst":         "10.0.0.3",
-        "Protocol":    "TCP",
+        "avg_pkt_size":         _jitter(0.0, 0.0),
+        "bytes_per_sec":        _jitter(0.0, 0.0),
+        "packets_per_sec":      _jitter(358.87 + i * 8),
+        "active_flow_count":    _jitter(4.0),
+        "flow_duration":        _jitter(0.0174),
+        "avg_bytes_per_flow":   _jitter(0.0, 0.0),
+        "tx_rx_byte_ratio":     _jitter(0.0, 0.0),
+        "packet_size_variance": _jitter(0.0, 0.0),
+        "switch":  str(random.choice(SWITCHES[:5])),
+        "src":     "10.0.0.6",
+        "dst":     "10.0.0.3",
+        "Protocol": "TCP",
     }
 
 
 def data_exfiltration(i: int) -> dict:
     """
-    Data Exfiltration — sustained large TCP uploads, very high TX with
-    near-zero RX, large packets, moderate steady pktrate over long
-    duration, low flow count (single tunnel).
+    Data Exfiltration → DoS class.
+    Heavy outbound data transfers map to DoS attack signature in InSDN.
     """
-    dur = random.randint(200, 600)
-    pktcount = int(_jitter(120_000 + i * 3_000))
-    bytecount = pktcount * random.randint(1300, 1500)  # MTU-sized uploads
-    flows = random.randint(1, 3)
-    tx = int(_jitter(500_000_000 + i * 10_000_000))
-    rx = random.randint(5_000, 30_000)  # ACKs only
     return {
-        "pktcount":    pktcount,
-        "bytecount":   bytecount,
-        "dur":         dur,
-        "dur_nsec":    random.randint(0, 999_000_000),
-        "tot_dur":     int(dur * 1e9),
-        "flows":       flows,
-        "packetins":   random.randint(2000, 5000),
-        "pktperflow":  pktcount // max(flows, 1),
-        "byteperflow": bytecount // max(flows, 1),
-        "pktrate":     int(pktcount / max(dur, 1)),
-        "Pairflow":    0,
-        "port_no":     random.choice(PORTS[:3]),
-        "tx_bytes":    tx,
-        "rx_bytes":    rx,
-        "tx_kbps":     int(tx / 1024 / max(dur, 1)),
-        "rx_kbps":     0,
-        "tot_kbps":    int(tx / 1024 / max(dur, 1)),
-        "switch":      str(random.choice(SWITCHES[:4])),
-        "src":         "10.0.0.12",
-        "dst":         "10.0.0.1",
-        "Protocol":    "TCP",
+        "avg_pkt_size":         _jitter(53.78),
+        "bytes_per_sec":        _jitter(800.0 + i * 50),
+        "packets_per_sec":      _jitter(650.0 + i * 20),
+        "active_flow_count":    _jitter(7.0),
+        "flow_duration":        _jitter(0.0102),
+        "avg_bytes_per_flow":   _jitter(12.5),
+        "tx_rx_byte_ratio":     _jitter(5.0),
+        "packet_size_variance": _jitter(14225.49),
+        "switch":  str(random.choice(SWITCHES[:4])),
+        "src":     "10.0.0.12",
+        "dst":     "10.0.0.1",
+        "Protocol": "TCP",
     }
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -407,16 +276,17 @@ def data_exfiltration(i: int) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 ATTACKS = {
-    "normal":        {"fn": normal_traffic,    "label": "Normal Traffic",          "icon": "🟢", "expected": "NORMAL"},
-    "tcp_syn":       {"fn": tcp_syn_flood,     "label": "TCP SYN Flood",           "icon": "🔴", "expected": "ATTACK"},
-    "udp_flood":     {"fn": udp_flood,         "label": "UDP Volumetric Flood",    "icon": "🔴", "expected": "ATTACK"},
-    "icmp_flood":    {"fn": icmp_flood,        "label": "ICMP Flood / Ping of Death", "icon": "🔴", "expected": "ATTACK"},
-    "port_scan":     {"fn": port_scan,         "label": "TCP Port Scan",           "icon": "🟠", "expected": "ATTACK"},
-    "slowloris":     {"fn": slowloris,         "label": "Slowloris (Slow HTTP)",   "icon": "🟠", "expected": "ATTACK"},
-    "dns_amp":       {"fn": dns_amplification, "label": "DNS Amplification",       "icon": "🔴", "expected": "ATTACK"},
-    "brute_force":   {"fn": brute_force,       "label": "SSH Brute Force",         "icon": "🟠", "expected": "ATTACK"},
-    "exfiltration":  {"fn": data_exfiltration, "label": "Data Exfiltration",       "icon": "🟡", "expected": "ATTACK"},
+    "normal":        {"fn": normal_traffic,    "label": "Normal Traffic",              "icon": "🟢", "expected": "NORMAL",  "category": "Normal"},
+    "tcp_syn":       {"fn": tcp_syn_flood,     "label": "TCP SYN Flood",               "icon": "🔴", "expected": "ATTACK",  "category": "DDoS"},
+    "udp_flood":     {"fn": udp_flood,         "label": "UDP Volumetric Flood",        "icon": "🔴", "expected": "ATTACK",  "category": "DDoS"},
+    "icmp_flood":    {"fn": icmp_flood,        "label": "ICMP Flood / Ping of Death",  "icon": "🔴", "expected": "ATTACK",  "category": "DDoS"},
+    "port_scan":     {"fn": port_scan,         "label": "TCP Port Scan",               "icon": "🟠", "expected": "ATTACK",  "category": "Probe"},
+    "slowloris":     {"fn": slowloris,         "label": "Slowloris (Slow HTTP → DoS)", "icon": "🟠", "expected": "ATTACK",  "category": "DoS"},
+    "dns_amp":       {"fn": dns_amplification, "label": "DNS Amplification",           "icon": "🔴", "expected": "ATTACK",  "category": "DDoS"},
+    "brute_force":   {"fn": brute_force,       "label": "SSH Brute Force",             "icon": "🟠", "expected": "ATTACK",  "category": "Brute_Force"},
+    "exfiltration":  {"fn": data_exfiltration, "label": "Data Exfiltration (DoS)",    "icon": "🟡", "expected": "ATTACK",  "category": "DoS"},
 }
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -360,13 +360,13 @@ export default function Cloud() {
         )}
         
         <div>
-          <section className="rounded-3xl border border-slate-800 bg-gradient-to-r from-slate-900 to-slate-800 p-8 shadow-2xl mb-8">
+          <section className="rounded-3xl border border-zinc-800 bg-gradient-to-r from-zinc-900 to-zinc-800 p-8 shadow-2xl mb-8">
           <div className="grid lg:grid-cols-2 gap-8 items-center">
             <div>
               <h2 className="text-4xl font-bold leading-tight mb-4">
                 Modern OVN-Based OpenStack Networking Control Center
               </h2>
-              <p className="text-slate-300 text-lg leading-relaxed">
+              <p className="text-zinc-300 text-lg leading-relaxed">
                 Centralized React dashboard for managing OpenStack networking,
                 OVN logical topology, Neutron services, virtual machines,
                 distributed routing, VXLAN/Geneve overlays, and SDN security
@@ -381,14 +381,14 @@ export default function Cloud() {
                 </button>
                 <button 
                   onClick={() => scrollToSection(infrastructureRef)}
-                  className="rounded-2xl border border-slate-700 px-6 py-3 hover:bg-slate-800 transition"
+                  className="rounded-2xl border border-zinc-700 px-6 py-3 hover:bg-zinc-800 transition"
                 >
                   OVN Controller Status
                 </button>
               </div>
             </div>
 
-            <div ref={infrastructureRef} className="rounded-3xl border border-slate-700 bg-slate-950/70 p-6">
+            <div ref={infrastructureRef} className="rounded-3xl border border-zinc-700 bg-zinc-950/70 p-6">
               <h3 className="text-xl font-semibold mb-6">
                 OVN Infrastructure Overview
               </h3>
@@ -400,7 +400,7 @@ export default function Cloud() {
                       {infrastructureStatus.ovnNbDb.status}
                     </span>
                   </div>
-                  <div className="h-3 rounded-full bg-slate-800 overflow-hidden">
+                  <div className="h-3 rounded-full bg-zinc-800 overflow-hidden">
                     <div 
                       className="h-full bg-green-500 rounded-full transition-all duration-300" 
                       style={{ width: `${infrastructureStatus.ovnNbDb.health}%` }}
@@ -414,7 +414,7 @@ export default function Cloud() {
                       {infrastructureStatus.ovnSbDb.status}
                     </span>
                   </div>
-                  <div className="h-3 rounded-full bg-slate-800 overflow-hidden">
+                  <div className="h-3 rounded-full bg-zinc-800 overflow-hidden">
                     <div 
                       className="h-full bg-blue-500 rounded-full transition-all duration-300" 
                       style={{ width: `${infrastructureStatus.ovnSbDb.health}%` }}
@@ -428,7 +428,7 @@ export default function Cloud() {
                       {infrastructureStatus.neutronApi.status}
                     </span>
                   </div>
-                  <div className="h-3 rounded-full bg-slate-800 overflow-hidden">
+                  <div className="h-3 rounded-full bg-zinc-800 overflow-hidden">
                     <div 
                       className="h-full bg-yellow-500 rounded-full transition-all duration-300" 
                       style={{ width: `${infrastructureStatus.neutronApi.health}%` }}
@@ -442,7 +442,7 @@ export default function Cloud() {
                       {infrastructureStatus.ovsBridges.status}
                     </span>
                   </div>
-                  <div className="h-3 rounded-full bg-slate-800 overflow-hidden">
+                  <div className="h-3 rounded-full bg-zinc-800 overflow-hidden">
                     <div 
                       className="h-full bg-cyan-500 rounded-full transition-all duration-300" 
                       style={{ width: `${infrastructureStatus.ovsBridges.health}%` }}
@@ -455,7 +455,7 @@ export default function Cloud() {
         </section>
 
         {loading ? (
-          <div className="rounded-3xl border border-slate-800 bg-slate-900 p-8 text-center text-slate-300 shadow-2xl">
+          <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-8 text-center text-zinc-300 shadow-2xl">
             Loading Cloud data from Node middleware...
           </div>
         ) : (
@@ -498,29 +498,29 @@ export default function Cloud() {
               {displayStats.length > 0 ? displayStats.map((item) => (
                 <div
                   key={item.title}
-                  className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-xl hover:scale-[1.02] transition"
+                  className="rounded-3xl border border-zinc-800 bg-zinc-900 p-6 shadow-xl hover:scale-[1.02] transition"
                 >
                   <div className="flex items-center justify-between mb-4">
                     <span className="text-4xl">{item.icon}</span>
                   </div>
-                  <h3 className="text-slate-400 text-sm uppercase tracking-wider">
+                  <h3 className="text-zinc-400 text-sm uppercase tracking-wider">
                     {item.title}
                   </h3>
                   <p className="text-4xl font-bold mt-2">{item.value}</p>
                 </div>
               )) : (
-                <div className="col-span-full text-center text-slate-400 py-12">
+                <div className="col-span-full text-center text-zinc-400 py-12">
                   No cloud statistics available. Connect to OpenStack to see live metrics.
                 </div>
               )}
             </section>
 
             <section className="grid xl:grid-cols-2 gap-8">
-              <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+              <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <h2 className="text-2xl font-bold">Virtual Machines</h2>
-                    <p className="text-slate-400 text-sm">
+                    <p className="text-zinc-400 text-sm">
                       Instances attached to the OVN logical topology
                     </p>
                   </div>
@@ -534,7 +534,7 @@ export default function Cloud() {
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
-                      <tr className="border-b border-slate-800 text-left text-slate-400 text-sm">
+                      <tr className="border-b border-zinc-800 text-left text-zinc-400 text-sm">
                         <th className="pb-4">Instance</th>
                         <th className="pb-4">Status</th>
                         <th className="pb-4">IP Address</th>
@@ -547,14 +547,14 @@ export default function Cloud() {
                         <tr
                           key={vm.id}
                           onClick={() => setSelectedVmId(vm.id)}
-                          className={`border-b border-slate-800/60 hover:bg-slate-800/40 transition cursor-pointer ${
-                            vm.id === selectedVmId ? "bg-slate-800/60" : ""
+                          className={`border-b border-zinc-800/60 hover:bg-zinc-800/40 transition cursor-pointer ${
+                            vm.id === selectedVmId ? "bg-zinc-800/60" : ""
                           }`}
                         >
                           <td className="py-4">
                             <div>
                               <p className="font-semibold">{vm.name}</p>
-                              <p className="text-sm text-slate-500">{vm.id}</p>
+                              <p className="text-sm text-zinc-500">{vm.id}</p>
                             </div>
                           </td>
                           <td>
@@ -574,7 +574,7 @@ export default function Cloud() {
                         </tr>
                       )) : (
                         <tr>
-                          <td colSpan="5" className="text-center text-slate-400 py-8">
+                          <td colSpan="5" className="text-center text-zinc-400 py-8">
                             No virtual machines found. Connect to OpenStack to see your instances.
                           </td>
                         </tr>
@@ -584,26 +584,26 @@ export default function Cloud() {
                 </div>
 
                 {selectedVm && (
-                  <div className="mt-6 rounded-3xl border border-slate-800 bg-slate-950/50 p-5">
+                  <div className="mt-6 rounded-3xl border border-zinc-800 bg-zinc-950/50 p-5">
                     <h3 className="text-lg font-semibold mb-3">Selected VM</h3>
-                    <p className="text-slate-300 mb-2">
+                    <p className="text-zinc-300 mb-2">
                       <strong>Name:</strong> {selectedVm.name}
                     </p>
-                    <p className="text-slate-300 mb-2">
+                    <p className="text-zinc-300 mb-2">
                       <strong>Logical Port:</strong> {selectedVm.logicalPort || "N/A"}
                     </p>
-                    <p className="text-slate-300 mb-2">
+                    <p className="text-zinc-300 mb-2">
                       <strong>Logical Switch:</strong> {selectedVm.logicalSwitch || "N/A"}
                     </p>
                   </div>
                 )}
               </div>
 
-              <div ref={networksRef} className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+              <div ref={networksRef} className="rounded-3xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <h2 className="text-2xl font-bold">OVN Networks</h2>
-                    <p className="text-slate-400 text-sm">
+                    <p className="text-zinc-400 text-sm">
                       Logical switches and overlay segments from the OVN Northbound DB
                     </p>
                   </div>
@@ -618,15 +618,15 @@ export default function Cloud() {
                   {networks.length > 0 ? networks.map((network) => (
                     <div
                       key={network.name}
-                      className="rounded-2xl border border-slate-800 bg-slate-950/50 p-5 hover:border-blue-500 transition"
+                      className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-5 hover:border-blue-500 transition"
                     >
                       <div className="flex items-start justify-between">
                         <div>
                           <h3 className="text-lg font-semibold">{network.name}</h3>
-                          <div className="mt-3 flex flex-wrap gap-3 text-sm text-slate-400">
-                            <span className="rounded-full bg-slate-800 px-3 py-1">{network.type}</span>
-                            <span className="rounded-full bg-slate-800 px-3 py-1">{network.cidr}</span>
-                            <span className="rounded-full bg-slate-800 px-3 py-1">{network.segmentation}</span>
+                          <div className="mt-3 flex flex-wrap gap-3 text-sm text-zinc-400">
+                            <span className="rounded-full bg-zinc-800 px-3 py-1">{network.type}</span>
+                            <span className="rounded-full bg-zinc-800 px-3 py-1">{network.cidr}</span>
+                            <span className="rounded-full bg-zinc-800 px-3 py-1">{network.segmentation}</span>
                           </div>
                         </div>
                         <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-semibold text-green-400">
@@ -635,7 +635,7 @@ export default function Cloud() {
                       </div>
                     </div>
                   )) : (
-                    <div className="text-center text-slate-400 py-8">
+                    <div className="text-center text-zinc-400 py-8">
                       No networks found. Connect to OpenStack to see your OVN logical switches.
                     </div>
                   )}
@@ -644,18 +644,18 @@ export default function Cloud() {
             </section>
 
             <section className="grid xl:grid-cols-2 gap-8">
-              <div ref={securityRef} className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+              <div ref={securityRef} className="rounded-3xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
                 <h2 className="text-2xl font-bold mb-2">SDN Security Flow Policies</h2>
-                <p className="text-slate-400 mb-6">
+                <p className="text-zinc-400 mb-6">
                   Translate OpenStack security intent into OVN ACLs and verify the Northbound state.
                 </p>
                 <div className="grid md:grid-cols-2 gap-5">
                   <div>
-                    <label className="block mb-2 text-sm text-slate-400">Source Instance</label>
+                    <label className="block mb-2 text-sm text-zinc-400">Source Instance</label>
                     <select
                       value={ruleForm.source}
                       onChange={(e) => updateRuleField("source", e.target.value)}
-                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-4 outline-none focus:border-blue-500"
+                      className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-4 outline-none focus:border-blue-500"
                     >
                       <option value="">Select source...</option>
                       {virtualMachines.map((vm) => (
@@ -666,11 +666,11 @@ export default function Cloud() {
                     </select>
                   </div>
                   <div>
-                    <label className="block mb-2 text-sm text-slate-400">Destination</label>
+                    <label className="block mb-2 text-sm text-zinc-400">Destination</label>
                     <select
                       value={ruleForm.destination}
                       onChange={(e) => updateRuleField("destination", e.target.value)}
-                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-4 outline-none focus:border-blue-500"
+                      className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-4 outline-none focus:border-blue-500"
                     >
                       <option value="">Select destination...</option>
                       {networks.map((network) => (
@@ -681,11 +681,11 @@ export default function Cloud() {
                     </select>
                   </div>
                   <div>
-                    <label className="block mb-2 text-sm text-slate-400">Protocol</label>
+                    <label className="block mb-2 text-sm text-zinc-400">Protocol</label>
                     <select
                       value={ruleForm.protocol}
                       onChange={(e) => updateRuleField("protocol", e.target.value)}
-                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-4 outline-none focus:border-blue-500"
+                      className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-4 outline-none focus:border-blue-500"
                     >
                       <option value="TCP">TCP</option>
                       <option value="UDP">UDP</option>
@@ -693,22 +693,22 @@ export default function Cloud() {
                     </select>
                   </div>
                   <div>
-                    <label className="block mb-2 text-sm text-slate-400">Action</label>
+                    <label className="block mb-2 text-sm text-zinc-400">Action</label>
                     <select
                       value={ruleForm.action}
                       onChange={(e) => updateRuleField("action", e.target.value)}
-                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-4 outline-none focus:border-blue-500"
+                      className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-4 outline-none focus:border-blue-500"
                     >
                       <option value="ALLOW">ALLOW</option>
                       <option value="DENY">DENY</option>
                     </select>
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block mb-2 text-sm text-slate-400">Destination Port</label>
+                    <label className="block mb-2 text-sm text-zinc-400">Destination Port</label>
                     <input
                       value={ruleForm.port}
                       onChange={(e) => updateRuleField("port", e.target.value)}
-                      className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-4 outline-none focus:border-blue-500"
+                      className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-4 outline-none focus:border-blue-500"
                       placeholder="22"
                     />
                   </div>
@@ -725,16 +725,16 @@ export default function Cloud() {
                   <button
                     onClick={handleVerifyAcl}
                     disabled={verifyingAcl}
-                    className="rounded-2xl border border-slate-700 bg-slate-800 px-6 py-4 font-semibold text-slate-100 hover:bg-slate-700 transition disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-2xl border border-zinc-700 bg-zinc-800 px-6 py-4 font-semibold text-zinc-100 hover:bg-zinc-700 transition disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {verifyingAcl ? "Verifying ACL..." : "Verify ACL State"}
                   </button>
                 </div>
                 {aclVerification.length > 0 && (
-                  <div className="mt-6 rounded-3xl border border-slate-800 bg-slate-950/40 p-5">
+                  <div className="mt-6 rounded-3xl border border-zinc-800 bg-zinc-950/40 p-5">
                     <h4 className="text-lg font-semibold mb-3">OVN ACL Verification</h4>
                     {aclVerification.map((line, idx) => (
-                      <p key={idx} className="text-sm text-slate-300 leading-relaxed">
+                      <p key={idx} className="text-sm text-zinc-300 leading-relaxed">
                         {line}
                       </p>
                     ))}
@@ -742,11 +742,11 @@ export default function Cloud() {
                 )}
               </div>
 
-              <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+              <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <h2 className="text-2xl font-bold">Live OVN Traffic Flows</h2>
-                    <p className="text-slate-400 text-sm">
+                    <p className="text-zinc-400 text-sm">
                       Distributed SDN traffic policies across virtual networks
                     </p>
                   </div>
@@ -758,12 +758,12 @@ export default function Cloud() {
                   {displayFlows.map((flow, index) => (
                     <div
                       key={index}
-                      className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5"
+                      className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-5"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-4">
                         <div>
                           <p className="font-semibold text-lg">{flow.source}</p>
-                          <p className="text-sm text-slate-400">→ {flow.destination}</p>
+                          <p className="text-sm text-zinc-400">→ {flow.destination}</p>
                         </div>
                         <div className="flex gap-3 flex-wrap">
                           <span className="rounded-full bg-blue-500/20 px-3 py-1 text-sm text-blue-400">
@@ -780,7 +780,7 @@ export default function Cloud() {
                     </div>
                   ))}
                   {displayFlows.length === 0 && (
-                    <div className="text-center text-slate-400 py-8">
+                    <div className="text-center text-zinc-400 py-8">
                       No flow data available. Connect to OpenStack to see live traffic flows.
                     </div>
                   )}
@@ -793,9 +793,9 @@ export default function Cloud() {
 
         {/* Footer always below main content */}
         {!showTopology && (
-          <footer className="rounded-3xl border border-slate-800 bg-slate-900 p-6 text-center text-slate-400 mt-auto">
+          <footer className="rounded-3xl border border-zinc-800 bg-zinc-900 p-6 text-center text-zinc-400 mt-auto">
           Modern React + OpenStack + OVN SDN Dashboard Architecture
-          <div className="mt-2 text-sm text-slate-500">
+          <div className="mt-2 text-sm text-zinc-500">
             React UI • Node.js Middleware • OpenStack Neutron • OVN • Open
             vSwitch • VXLAN/Geneve
           </div>
@@ -805,24 +805,24 @@ export default function Cloud() {
         {/* Create VM Modal */}
         {showVmModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-slate-900 rounded-3xl border border-slate-800 p-6 w-full max-w-md">
+            <div className="bg-zinc-900 rounded-3xl border border-zinc-800 p-6 w-full max-w-md">
               <h3 className="text-xl font-bold mb-4">Create Virtual Machine</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block mb-2 text-sm text-slate-400">VM Name</label>
+                  <label className="block mb-2 text-sm text-zinc-400">VM Name</label>
                   <input
                     value={vmForm.name}
                     onChange={(e) => updateVmField("name", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 outline-none focus:border-blue-500"
+                    className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                     placeholder="my-vm-01"
                   />
                 </div>
                 <div>
-                  <label className="block mb-2 text-sm text-slate-400">Flavor</label>
+                  <label className="block mb-2 text-sm text-zinc-400">Flavor</label>
                   <select
                     value={vmForm.flavor}
                     onChange={(e) => updateVmField("flavor", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 outline-none focus:border-blue-500"
+                    className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                   >
                     <option value="m1.small">m1.small (1 vCPU, 2GB RAM)</option>
                     <option value="m1.medium">m1.medium (2 vCPU, 4GB RAM)</option>
@@ -830,11 +830,11 @@ export default function Cloud() {
                   </select>
                 </div>
                 <div>
-                  <label className="block mb-2 text-sm text-slate-400">Image</label>
+                  <label className="block mb-2 text-sm text-zinc-400">Image</label>
                   <select
                     value={vmForm.image}
                     onChange={(e) => updateVmField("image", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 outline-none focus:border-blue-500"
+                    className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                   >
                     <option value="cirros-0.6.3-x86_64-disk">Cirros 0.6.3</option>
                     <option value="centos-8">CentOS 8</option>
@@ -842,11 +842,11 @@ export default function Cloud() {
                   </select>
                 </div>
                 <div>
-                  <label className="block mb-2 text-sm text-slate-400">Network</label>
+                  <label className="block mb-2 text-sm text-zinc-400">Network</label>
                   <select
                     value={vmForm.network}
                     onChange={(e) => updateVmField("network", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 outline-none focus:border-blue-500"
+                    className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                   >
                     <option value="">Select network...</option>
                     {networks.map((network) => (
@@ -860,7 +860,7 @@ export default function Cloud() {
               <div className="flex gap-3 mt-6">
                 <button
                   onClick={() => setShowVmModal(false)}
-                  className="flex-1 rounded-2xl border border-slate-700 px-4 py-3 hover:bg-slate-800 transition"
+                  className="flex-1 rounded-2xl border border-zinc-700 px-4 py-3 hover:bg-zinc-800 transition"
                 >
                   Cancel
                 </button>
@@ -879,33 +879,33 @@ export default function Cloud() {
         {/* Create Network Modal */}
         {showNetworkModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-slate-900 rounded-3xl border border-slate-800 p-6 w-full max-w-md">
+            <div className="bg-zinc-900 rounded-3xl border border-zinc-800 p-6 w-full max-w-md">
               <h3 className="text-xl font-bold mb-4">Create OVN Network</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block mb-2 text-sm text-slate-400">Network Name</label>
+                  <label className="block mb-2 text-sm text-zinc-400">Network Name</label>
                   <input
                     value={networkForm.name}
                     onChange={(e) => updateNetworkField("name", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 outline-none focus:border-blue-500"
+                    className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                     placeholder="private-net"
                   />
                 </div>
                 <div>
-                  <label className="block mb-2 text-sm text-slate-400">CIDR</label>
+                  <label className="block mb-2 text-sm text-zinc-400">CIDR</label>
                   <input
                     value={networkForm.cidr}
                     onChange={(e) => updateNetworkField("cidr", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 outline-none focus:border-blue-500"
+                    className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                     placeholder="192.168.1.0/24"
                   />
                 </div>
                 <div>
-                  <label className="block mb-2 text-sm text-slate-400">Segmentation</label>
+                  <label className="block mb-2 text-sm text-zinc-400">Segmentation</label>
                   <input
                     value={networkForm.segmentation}
                     onChange={(e) => updateNetworkField("segmentation", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 outline-none focus:border-blue-500"
+                    className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                     placeholder="VXLAN-1000"
                   />
                 </div>
@@ -913,7 +913,7 @@ export default function Cloud() {
               <div className="flex gap-3 mt-6">
                 <button
                   onClick={() => setShowNetworkModal(false)}
-                  className="flex-1 rounded-2xl border border-slate-700 px-4 py-3 hover:bg-slate-800 transition"
+                  className="flex-1 rounded-2xl border border-zinc-700 px-4 py-3 hover:bg-zinc-800 transition"
                 >
                   Cancel
                 </button>
@@ -932,24 +932,24 @@ export default function Cloud() {
         {/* Launch Instance Modal */}
         {showLaunchModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-slate-900 rounded-3xl border border-slate-800 p-6 w-full max-w-md">
+            <div className="bg-zinc-900 rounded-3xl border border-zinc-800 p-6 w-full max-w-md">
               <h3 className="text-xl font-bold mb-4">Launch Instance</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block mb-2 text-sm text-slate-400">Instance Name</label>
+                  <label className="block mb-2 text-sm text-zinc-400">Instance Name</label>
                   <input
                     value={launchForm.name}
                     onChange={(e) => updateLaunchField("name", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 outline-none focus:border-blue-500"
+                    className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                     placeholder="my-instance-01"
                   />
                 </div>
                 <div>
-                  <label className="block mb-2 text-sm text-slate-400">Flavor</label>
+                  <label className="block mb-2 text-sm text-zinc-400">Flavor</label>
                   <select
                     value={launchForm.flavor}
                     onChange={(e) => updateLaunchField("flavor", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 outline-none focus:border-blue-500"
+                    className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                   >
                     <option value="m1.small">m1.small (1 vCPU, 2GB RAM)</option>
                     <option value="m1.medium">m1.medium (2 vCPU, 4GB RAM)</option>
@@ -957,11 +957,11 @@ export default function Cloud() {
                   </select>
                 </div>
                 <div>
-                  <label className="block mb-2 text-sm text-slate-400">Image</label>
+                  <label className="block mb-2 text-sm text-zinc-400">Image</label>
                   <select
                     value={launchForm.image}
                     onChange={(e) => updateLaunchField("image", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 outline-none focus:border-blue-500"
+                    className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                   >
                     <option value="cirros-0.6.3-x86_64-disk">Cirros 0.6.3</option>
                     <option value="centos-8">CentOS 8</option>
@@ -969,11 +969,11 @@ export default function Cloud() {
                   </select>
                 </div>
                 <div>
-                  <label className="block mb-2 text-sm text-slate-400">Network</label>
+                  <label className="block mb-2 text-sm text-zinc-400">Network</label>
                   <select
                     value={launchForm.network}
                     onChange={(e) => updateLaunchField("network", e.target.value)}
-                    className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 outline-none focus:border-blue-500"
+                    className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                   >
                     <option value="">Select network...</option>
                     {networks.map((network) => (
@@ -987,7 +987,7 @@ export default function Cloud() {
               <div className="flex gap-3 mt-6">
                 <button
                   onClick={() => setShowLaunchModal(false)}
-                  className="flex-1 rounded-2xl border border-slate-700 px-4 py-3 hover:bg-slate-800 transition"
+                  className="flex-1 rounded-2xl border border-zinc-700 px-4 py-3 hover:bg-zinc-800 transition"
                 >
                   Cancel
                 </button>
