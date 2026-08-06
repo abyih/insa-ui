@@ -1,0 +1,540 @@
+{
+    "network-topology:topology": [
+        {
+            "topology-id": "ovsdb:1",
+            "node": [
+                {
+                    "node-id": "ovsdb://uuid/cf6f247a-1da0-4a7c-855e-b18668f72f5c/bridge/br-ex",
+                    "ovsdb:stp_enable": false,
+                    "ovsdb:bridge-uuid": "4651dc15-f6a9-429b-b644-ef2ef1794d9f",
+                    "ovsdb:bridge-name": "br-ex",
+                    "ovsdb:bridge-other-configs": [
+                        {
+                            "bridge-other-config-key": "disable-in-band",
+                            "bridge-other-config-value": "true"
+                        }
+                    ],
+                    "ovsdb:managed-by": "/network-topology:network-topology/topology[topology-id='ovsdb:1']/node[node-id='ovsdb://uuid/cf6f247a-1da0-4a7c-855e-b18668f72f5c']",
+                    "ovsdb:bridge-external-ids": [
+                        {
+                            "bridge-external-id-key": "bridge-id",
+                            "bridge-external-id-value": "br-ex"
+                        }
+                    ],
+                    "ovsdb:protocol-entry": [
+                        {
+                            "protocol": "ovsdb:ovsdb-bridge-protocol-openflow-15"
+                        },
+                        {
+                            "protocol": "ovsdb:ovsdb-bridge-protocol-openflow-13"
+                        }
+                    ],
+                    "termination-point": [
+                        {
+                            "tp-id": "br-ex",
+                            "ovsdb:port-uuid": "8688e8bd-7c57-4514-9a8d-5e07613ea6af",
+                            "ovsdb:ingress-policing-burst": 0,
+                            "ovsdb:name": "br-ex",
+                            "ovsdb:mac-in-use": "16:dc:51:46:9b:42",
+                            "ovsdb:ofport": 65534,
+                            "ovsdb:ifindex": 8,
+                            "ovsdb:interface-uuid": "91c3cb1c-94cd-42d9-bc64-6779d162be21",
+                            "ovsdb:ingress-policing-rate": 0,
+                            "ovsdb:interface-type": "ovsdb:interface-type-internal"
+                        },
+                        {
+                            "tp-id": "patch-provnet-84c361e2-0ff0-4304-abb7-f205130675ed-to-br-int",
+                            "ovsdb:port-uuid": "3863a994-1f25-482d-b3cb-9302aa8b7b09",
+                            "ovsdb:ingress-policing-burst": 0,
+                            "ovsdb:name": "patch-provnet-84c361e2-0ff0-4304-abb7-f205130675ed-to-br-int",
+                            "ovsdb:mac-in-use": "e6:41:d8:2f:f7:b0",
+                            "ovsdb:options": [
+                                {
+                                    "option": "peer",
+                                    "value": "patch-br-int-to-provnet-84c361e2-0ff0-4304-abb7-f205130675ed"
+                                }
+                            ],
+                            "ovsdb:ofport": 2,
+                            "ovsdb:ifindex": 0,
+                            "ovsdb:port-external-ids": [
+                                {
+                                    "external-id-key": "ovn-localnet-port",
+                                    "external-id-value": "provnet-84c361e2-0ff0-4304-abb7-f205130675ed"
+                                }
+                            ],
+                            "ovsdb:interface-uuid": "4f9dfe97-4f62-44ba-b5fe-f14503c327ed",
+                            "ovsdb:ingress-policing-rate": 0,
+                            "ovsdb:interface-type": "ovsdb:interface-type-patch"
+                        }
+                    ],
+                    "ovsdb:datapath-id": "00:00:16:dc:51:46:9b:42",
+                    "ovsdb:datapath-type": "ovsdb:datapath-type-system"
+                },
+                {
+                    "node-id": "ovsdb://uuid/cf6f247a-1da0-4a7c-855e-b18668f72f5c",
+                    "ovsdb:db-version": "8.5.1",
+                    "ovsdb:interface-type-entry": [
+                        {
+                            "interface-type": "ovsdb:interface-type-vxlan"
+                        },
+                        {
+                            "interface-type": "ovsdb:interface-type-tap"
+                        },
+                        {
+                            "interface-type": "ovsdb:interface-type-stt"
+                        },
+                        {
+                            "interface-type": "ovsdb:interface-type-internal"
+                        },
+                        {
+                            "interface-type": "ovsdb:interface-type-patch"
+                        },
+                        {
+                            "interface-type": "ovsdb:interface-type-lisp"
+                        },
+                        {
+                            "interface-type": "ovsdb:interface-type-geneve"
+                        },
+                        {
+                            "interface-type": "ovsdb:interface-type-gre"
+                        },
+                        {
+                            "interface-type": "ovsdb:interface-type-system"
+                        }
+                    ],
+                    "ovsdb:ovs-version": "3.3.4",
+                    "ovsdb:connection-info": {
+                        "local-port": 6640,
+                        "remote-port": 52982,
+                        "local-ip": "172.17.0.2",
+                        "remote-ip": "172.17.0.1"
+                    },
+                    "ovsdb:openvswitch-external-ids": [
+                        {
+                            "external-id-key": "ovn-cms-options",
+                            "external-id-value": "enable-chassis-as-gw"
+                        },
+                        {
+                            "external-id-key": "hostname",
+                            "external-id-value": "DESKTOP-JJODNDT"
+                        },
+                        {
+                            "external-id-key": "ovn-bridge-mappings",
+                            "external-id-value": "public:br-ex"
+                        },
+                        {
+                            "external-id-key": "ovn-encap-type",
+                            "external-id-value": "geneve"
+                        },
+                        {
+                            "external-id-key": "ovn-bridge",
+                            "external-id-value": "br-int"
+                        },
+                        {
+                            "external-id-key": "rundir",
+                            "external-id-value": "/var/run/openvswitch"
+                        },
+                        {
+                            "external-id-key": "system-id",
+                            "external-id-value": "8357034e-21eb-4c05-ae9e-20f0e238d800"
+                        },
+                        {
+                            "external-id-key": "ovn-remote",
+                            "external-id-value": "tcp:172.27.189.3:6642"
+                        },
+                        {
+                            "external-id-key": "ovn-encap-ip",
+                            "external-id-value": "172.27.189.3"
+                        }
+                    ],
+                    "ovsdb:openvswitch-other-configs": [
+                        {
+                            "other-config-key": "vlan-limit",
+                            "other-config-value": "0"
+                        },
+                        {
+                            "other-config-key": "ovn-chassis-idx-8357034e-21eb-4c05-ae9e-20f0e238d800",
+                            "other-config-value": ""
+                        }
+                    ],
+                    "ovsdb:datapath-type-entry": [
+                        {
+                            "datapath-type": "ovsdb:datapath-type-netdev"
+                        },
+                        {
+                            "datapath-type": "ovsdb:datapath-type-system"
+                        }
+                    ],
+                    "ovsdb:managed-node-entry": [
+                        {
+                            "bridge-ref": "/network-topology:network-topology/topology[topology-id='ovsdb:1']/node[node-id='ovsdb://uuid/cf6f247a-1da0-4a7c-855e-b18668f72f5c/bridge/br-int']"
+                        },
+                        {
+                            "bridge-ref": "/network-topology:network-topology/topology[topology-id='ovsdb:1']/node[node-id='ovsdb://uuid/cf6f247a-1da0-4a7c-855e-b18668f72f5c/bridge/br-ex']"
+                        }
+                    ],
+                    "ovsdb:manager-entry": [
+                        {
+                            "target": "tcp:192.168.56.1:6640",
+                            "number_of_connections": 1,
+                            "connected": true
+                        }
+                    ],
+                    "ovsdb:qos-entries": [
+                        {
+                            "qos-id": "qos://bb28c494-67e4-4fd4-b070-66bf812a1a41",
+                            "qos-uuid": "bb28c494-67e4-4fd4-b070-66bf812a1a41",
+                            "qos-type": "ovsdb:qos-type-base",
+                            "qos-external-ids": [
+                                {
+                                    "qos-external-id-key": "_type",
+                                    "qos-external-id-value": "linux-noop"
+                                },
+                                {
+                                    "qos-external-id-key": "id",
+                                    "qos-external-id-value": "7188d719-39b4-5ca4-8930-6573573d4148"
+                                }
+                            ]
+                        },
+                        {
+                            "qos-id": "qos://453c32e7-d658-4c23-83bb-dd76f40c0187",
+                            "qos-uuid": "453c32e7-d658-4c23-83bb-dd76f40c0187",
+                            "qos-type": "ovsdb:qos-type-base",
+                            "qos-external-ids": [
+                                {
+                                    "qos-external-id-key": "_type",
+                                    "qos-external-id-value": "linux-noop"
+                                },
+                                {
+                                    "qos-external-id-key": "id",
+                                    "qos-external-id-value": "8df6fde4-9b09-5e64-83a3-23eec0b83311"
+                                }
+                            ]
+                        },
+                        {
+                            "qos-id": "qos://08854359-8d45-41c9-a88c-794598bc22b1",
+                            "qos-uuid": "08854359-8d45-41c9-a88c-794598bc22b1",
+                            "qos-type": "ovsdb:qos-type-base",
+                            "qos-external-ids": [
+                                {
+                                    "qos-external-id-key": "_type",
+                                    "qos-external-id-value": "linux-noop"
+                                },
+                                {
+                                    "qos-external-id-key": "id",
+                                    "qos-external-id-value": "05663e17-19fc-5f76-8cfa-6262db178156"
+                                }
+                            ]
+                        },
+                        {
+                            "qos-id": "qos://ac899834-8b4a-44ad-9f4e-5b0d54abd23f",
+                            "qos-uuid": "ac899834-8b4a-44ad-9f4e-5b0d54abd23f",
+                            "qos-type": "ovsdb:qos-type-base",
+                            "qos-external-ids": [
+                                {
+                                    "qos-external-id-key": "_type",
+                                    "qos-external-id-value": "linux-noop"
+                                },
+                                {
+                                    "qos-external-id-key": "id",
+                                    "qos-external-id-value": "154f0331-d8d2-5a9e-a7db-50978f4c0f51"
+                                }
+                            ]
+                        },
+                        {
+                            "qos-id": "qos://961cb845-5d55-4d57-bd2e-91e906b9dc3c",
+                            "qos-uuid": "961cb845-5d55-4d57-bd2e-91e906b9dc3c",
+                            "qos-type": "ovsdb:qos-type-base",
+                            "qos-external-ids": [
+                                {
+                                    "qos-external-id-key": "_type",
+                                    "qos-external-id-value": "linux-noop"
+                                },
+                                {
+                                    "qos-external-id-key": "id",
+                                    "qos-external-id-value": "09199929-80d9-53f7-874e-e9fe0c45668f"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "node-id": "ovsdb://uuid/cf6f247a-1da0-4a7c-855e-b18668f72f5c/bridge/br-int",
+                    "ovsdb:stp_enable": false,
+                    "ovsdb:bridge-uuid": "a32ea94b-cbdd-4031-8b3e-e23f54a54d2a",
+                    "ovsdb:bridge-name": "br-int",
+                    "ovsdb:bridge-other-configs": [
+                        {
+                            "bridge-other-config-key": "disable-in-band",
+                            "bridge-other-config-value": "true"
+                        },
+                        {
+                            "bridge-other-config-key": "hwaddr",
+                            "bridge-other-config-value": "ee:45:e4:ed:61:3f"
+                        }
+                    ],
+                    "ovsdb:fail-mode": "ovsdb:ovsdb-fail-mode-secure",
+                    "ovsdb:managed-by": "/network-topology:network-topology/topology[topology-id='ovsdb:1']/node[node-id='ovsdb://uuid/cf6f247a-1da0-4a7c-855e-b18668f72f5c']",
+                    "ovsdb:bridge-external-ids": [
+                        {
+                            "bridge-external-id-key": "ovn-startup-ts",
+                            "bridge-external-id-value": "1786044362505"
+                        },
+                        {
+                            "bridge-external-id-key": "ct-zone-neutron-cccdaf81-2b21-44c3-8edc-9a5496a70898_dnat",
+                            "bridge-external-id-value": "3"
+                        },
+                        {
+                            "bridge-external-id-key": "ct-zone-cr-lrp-a46efa19-a054-4322-b7f0-f43c03bafd4f",
+                            "bridge-external-id-value": "7"
+                        },
+                        {
+                            "bridge-external-id-key": "ct-zone-neutron-f8df41e2-1632-4975-bbeb-46278cf36464_dnat",
+                            "bridge-external-id-value": "5"
+                        },
+                        {
+                            "bridge-external-id-key": "ct-zone-provnet-84c361e2-0ff0-4304-abb7-f205130675ed",
+                            "bridge-external-id-value": "8"
+                        },
+                        {
+                            "bridge-external-id-key": "ct-zone-neutron-f8df41e2-1632-4975-bbeb-46278cf36464_snat",
+                            "bridge-external-id-value": "1"
+                        },
+                        {
+                            "bridge-external-id-key": "ct-zone-neutron-e9db2c37-e8ed-4876-a6c6-28e74173bdd4_dnat",
+                            "bridge-external-id-value": "4"
+                        },
+                        {
+                            "bridge-external-id-key": "ct-zone-neutron-cccdaf81-2b21-44c3-8edc-9a5496a70898_snat",
+                            "bridge-external-id-value": "2"
+                        },
+                        {
+                            "bridge-external-id-key": "ct-zone-neutron-e9db2c37-e8ed-4876-a6c6-28e74173bdd4_snat",
+                            "bridge-external-id-value": "6"
+                        },
+                        {
+                            "bridge-external-id-key": "ovn-nb-cfg-ts",
+                            "bridge-external-id-value": "1786049418018"
+                        },
+                        {
+                            "bridge-external-id-key": "ovn-nb-cfg",
+                            "bridge-external-id-value": "4"
+                        }
+                    ],
+                    "termination-point": [
+                        {
+                            "tp-id": "br-int",
+                            "ovsdb:port-uuid": "ae7016d6-ab00-4dac-b13e-fc2286324983",
+                            "ovsdb:ingress-policing-burst": 0,
+                            "ovsdb:name": "br-int",
+                            "ovsdb:mac-in-use": "ee:45:e4:ed:61:3f",
+                            "ovsdb:ofport": 65534,
+                            "ovsdb:ifindex": 9,
+                            "ovsdb:interface-uuid": "651ae6e6-bccf-4313-9ae7-7d85f28d6cf9",
+                            "ovsdb:ingress-policing-rate": 0,
+                            "ovsdb:interface-type": "ovsdb:interface-type-internal"
+                        },
+                        {
+                            "tp-id": "tap289172db-f1",
+                            "ovsdb:interface-external-ids": [
+                                {
+                                    "external-id-key": "attached-mac",
+                                    "external-id-value": "fa:16:3e:49:55:28"
+                                },
+                                {
+                                    "external-id-key": "iface-id",
+                                    "external-id-value": "289172db-f136-44c4-8edc-e69679be0c6a"
+                                },
+                                {
+                                    "external-id-key": "ovn-installed-ts",
+                                    "external-id-value": "1784273822791"
+                                },
+                                {
+                                    "external-id-key": "iface-status",
+                                    "external-id-value": "active"
+                                },
+                                {
+                                    "external-id-key": "vm-uuid",
+                                    "external-id-value": "7cecbca8-1cc9-419d-a17f-4d9dc4bed087"
+                                }
+                            ],
+                            "ovsdb:port-uuid": "91ef619e-b234-4102-856b-ba79575cfa1d",
+                            "ovsdb:qos-entry": [
+                                {
+                                    "qos-key": 1,
+                                    "qos-ref": "/network-topology:network-topology/topology[topology-id='ovsdb:1']/node[node-id='ovsdb://uuid/cf6f247a-1da0-4a7c-855e-b18668f72f5c']/ovsdb:qos-entries[qos-id='qos://08854359-8d45-41c9-a88c-794598bc22b1']"
+                                }
+                            ],
+                            "ovsdb:ingress-policing-burst": 0,
+                            "ovsdb:name": "tap289172db-f1",
+                            "ovsdb:interface-uuid": "2ec57a4e-9840-4da2-83a5-5bf8b5b66916",
+                            "ovsdb:ingress-policing-rate": 0
+                        },
+                        {
+                            "tp-id": "tap5bd721dc-15",
+                            "ovsdb:interface-external-ids": [
+                                {
+                                    "external-id-key": "attached-mac",
+                                    "external-id-value": "fa:16:3e:8b:26:de"
+                                },
+                                {
+                                    "external-id-key": "iface-id",
+                                    "external-id-value": "5bd721dc-15d5-4b1a-a43f-462efbea7034"
+                                },
+                                {
+                                    "external-id-key": "ovn-installed-ts",
+                                    "external-id-value": "1784274129012"
+                                },
+                                {
+                                    "external-id-key": "iface-status",
+                                    "external-id-value": "active"
+                                },
+                                {
+                                    "external-id-key": "vm-uuid",
+                                    "external-id-value": "f7a2f7f7-8ddf-49e4-87e8-7e66bb24df5a"
+                                }
+                            ],
+                            "ovsdb:port-uuid": "430f2e40-16fd-4dc9-b896-90097d27fec0",
+                            "ovsdb:qos-entry": [
+                                {
+                                    "qos-key": 1,
+                                    "qos-ref": "/network-topology:network-topology/topology[topology-id='ovsdb:1']/node[node-id='ovsdb://uuid/cf6f247a-1da0-4a7c-855e-b18668f72f5c']/ovsdb:qos-entries[qos-id='qos://961cb845-5d55-4d57-bd2e-91e906b9dc3c']"
+                                }
+                            ],
+                            "ovsdb:ingress-policing-burst": 0,
+                            "ovsdb:name": "tap5bd721dc-15",
+                            "ovsdb:interface-uuid": "84d4c7a8-6706-43fd-b846-889330269a27",
+                            "ovsdb:ingress-policing-rate": 0
+                        },
+                        {
+                            "tp-id": "tap6cfb5e92-59",
+                            "ovsdb:interface-external-ids": [
+                                {
+                                    "external-id-key": "attached-mac",
+                                    "external-id-value": "fa:16:3e:b9:be:73"
+                                },
+                                {
+                                    "external-id-key": "iface-id",
+                                    "external-id-value": "6cfb5e92-5921-4e02-8562-1f80087941bd"
+                                },
+                                {
+                                    "external-id-key": "ovn-installed-ts",
+                                    "external-id-value": "1784272668487"
+                                },
+                                {
+                                    "external-id-key": "iface-status",
+                                    "external-id-value": "active"
+                                },
+                                {
+                                    "external-id-key": "vm-uuid",
+                                    "external-id-value": "44af4da9-0b7c-4412-a168-5587a5254bb8"
+                                }
+                            ],
+                            "ovsdb:port-uuid": "29f10bee-1513-4750-97d7-b91c1f34f26b",
+                            "ovsdb:qos-entry": [
+                                {
+                                    "qos-key": 1,
+                                    "qos-ref": "/network-topology:network-topology/topology[topology-id='ovsdb:1']/node[node-id='ovsdb://uuid/cf6f247a-1da0-4a7c-855e-b18668f72f5c']/ovsdb:qos-entries[qos-id='qos://ac899834-8b4a-44ad-9f4e-5b0d54abd23f']"
+                                }
+                            ],
+                            "ovsdb:ingress-policing-burst": 0,
+                            "ovsdb:name": "tap6cfb5e92-59",
+                            "ovsdb:interface-uuid": "228783b2-6acd-4d7c-b80a-dc38b758bdb0",
+                            "ovsdb:ingress-policing-rate": 0
+                        },
+                        {
+                            "tp-id": "tap7881d238-a0",
+                            "ovsdb:interface-external-ids": [
+                                {
+                                    "external-id-key": "iface-id",
+                                    "external-id-value": "70854d2e-bd26-403b-aa9d-3d41cc85b32d"
+                                }
+                            ],
+                            "ovsdb:port-uuid": "7e510844-0bdd-4e2f-bb90-a3aea0532a65",
+                            "ovsdb:ingress-policing-burst": 0,
+                            "ovsdb:name": "tap7881d238-a0",
+                            "ovsdb:interface-uuid": "a43b8007-35ea-4d7d-9c4a-5f4b053173b3",
+                            "ovsdb:ingress-policing-rate": 0
+                        },
+                        {
+                            "tp-id": "tap13cbad59-78",
+                            "ovsdb:interface-external-ids": [
+                                {
+                                    "external-id-key": "attached-mac",
+                                    "external-id-value": "fa:16:3e:9a:2b:2b"
+                                },
+                                {
+                                    "external-id-key": "iface-id",
+                                    "external-id-value": "13cbad59-7893-47cc-95c1-f8f26a4c8e14"
+                                },
+                                {
+                                    "external-id-key": "ovn-installed-ts",
+                                    "external-id-value": "1784226858141"
+                                },
+                                {
+                                    "external-id-key": "iface-status",
+                                    "external-id-value": "active"
+                                },
+                                {
+                                    "external-id-key": "vm-uuid",
+                                    "external-id-value": "f346732f-bc38-4951-8088-65176dd472e5"
+                                }
+                            ],
+                            "ovsdb:port-uuid": "306d97da-7e4f-4bc4-877c-491003925faf",
+                            "ovsdb:qos-entry": [
+                                {
+                                    "qos-key": 1,
+                                    "qos-ref": "/network-topology:network-topology/topology[topology-id='ovsdb:1']/node[node-id='ovsdb://uuid/cf6f247a-1da0-4a7c-855e-b18668f72f5c']/ovsdb:qos-entries[qos-id='qos://bb28c494-67e4-4fd4-b070-66bf812a1a41']"
+                                }
+                            ],
+                            "ovsdb:ingress-policing-burst": 0,
+                            "ovsdb:name": "tap13cbad59-78",
+                            "ovsdb:interface-uuid": "148d1f73-1f2a-44f7-ad87-6aa91809a650",
+                            "ovsdb:ingress-policing-rate": 0
+                        },
+                        {
+                            "tp-id": "patch-br-int-to-provnet-84c361e2-0ff0-4304-abb7-f205130675ed",
+                            "ovsdb:port-uuid": "33bca987-6f59-48c7-8750-07e1b1d4b15c",
+                            "ovsdb:ingress-policing-burst": 0,
+                            "ovsdb:name": "patch-br-int-to-provnet-84c361e2-0ff0-4304-abb7-f205130675ed",
+                            "ovsdb:mac-in-use": "6a:ba:62:2a:7c:7b",
+                            "ovsdb:options": [
+                                {
+                                    "option": "peer",
+                                    "value": "patch-provnet-84c361e2-0ff0-4304-abb7-f205130675ed-to-br-int"
+                                }
+                            ],
+                            "ovsdb:ofport": 2,
+                            "ovsdb:ifindex": 0,
+                            "ovsdb:port-external-ids": [
+                                {
+                                    "external-id-key": "ovn-localnet-port",
+                                    "external-id-value": "provnet-84c361e2-0ff0-4304-abb7-f205130675ed"
+                                }
+                            ],
+                            "ovsdb:interface-uuid": "ec70ef0f-f0ee-40b7-b36c-48e8f4a4ee30",
+                            "ovsdb:ingress-policing-rate": 0,
+                            "ovsdb:interface-type": "ovsdb:interface-type-patch"
+                        },
+                        {
+                            "tp-id": "tap23280256-00",
+                            "ovsdb:interface-external-ids": [
+                                {
+                                    "external-id-key": "iface-id",
+                                    "external-id-value": "a21431ac-8b82-4bc6-965c-dfac71cdea6d"
+                                }
+                            ],
+                            "ovsdb:port-uuid": "7fe5300c-7858-46d9-a07d-9cca659939c0",
+                            "ovsdb:ingress-policing-burst": 0,
+                            "ovsdb:name": "tap23280256-00",
+                            "ovsdb:interface-uuid": "837bbe1f-a850-4767-bf1c-ed6da0197ffa",
+                            "ovsdb:ingress-policing-rate": 0
+                        }
+                    ],
+                    "ovsdb:datapath-id": "00:00:ee:45:e4:ed:61:3f",
+                    "ovsdb:datapath-type": "ovsdb:datapath-type-system"
+                }
+            ]
+        }
+    ]
+}

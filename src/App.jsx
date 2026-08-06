@@ -37,34 +37,47 @@ class AppErrorBoundary extends React.Component {
   }
 }
 
-// ─── Topology route — lazy loads topology only when navigated to
 function TopologyRoute() {
-  const [topo, setTopo]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError]     = React.useState(null);
+  const [topo, setTopo]          = React.useState(null);
+  const [loading, setLoading]    = React.useState(true);
+  const [error, setError]        = React.useState(null);
+  const [filter, setFilter]      = React.useState("all");
 
-  React.useEffect(() => {
+  const loadTopology = (targetFilter = filter) => {
+    setLoading(true);
+    setError(null);
     import("./Pages/Topology/TopologyService").then(({ default: svc }) => {
-      svc.getNode("flow:1")
+      svc.getNode(targetFilter)
         .then((data) => { setTopo(data); setLoading(false); })
         .catch((err) => { setError(err.message); setLoading(false); });
     });
-  }, []);
+  };
+
+  React.useEffect(() => {
+    loadTopology(filter);
+  }, [filter]);
 
   if (loading) return <Spinner />;
   if (error || !topo) return (
-    <div className="flex items-center justify-center h-64 text-gray-500">
-      Topology unavailable — ODL controller not reachable.
+    <div className="flex flex-col items-center justify-center h-64 text-zinc-400 gap-3">
+      <div>Topology unavailable — ODL controller not reachable or returned error: {error}</div>
+      <button 
+        onClick={() => loadTopology(filter)}
+        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg text-xs"
+      >
+        Retry Fetching Topology
+      </button>
     </div>
   );
-  return <TopologySimple topologyData={topo} onReload={() => {
-    setTopo(null); setLoading(true); setError(null);
-    import("./Pages/Topology/TopologyService").then(({ default: svc }) =>
-      svc.getNode("flow:1")
-        .then((d) => { setTopo(d); setLoading(false); })
-        .catch((e) => { setError(e.message); setLoading(false); })
-    );
-  }} />;
+
+  return (
+    <TopologySimple 
+      topologyData={topo} 
+      currentFilter={filter}
+      onFilterChange={(newFilter) => setFilter(newFilter)}
+      onReload={() => loadTopology(filter)} 
+    />
+  );
 }
 
 const App = () => (

@@ -1,5 +1,14 @@
 import dotenv from "dotenv";
 dotenv.config();
+
+// Prevent server process from crashing on unhandled promise rejections / network errors
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled Promise Rejection in server:", reason?.message || reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception in server:", err?.message || err);
+});
+
 import express from "express";
 import cors from "cors";
 import { execFile } from "child_process";
@@ -27,7 +36,7 @@ let tokenCache = {
 
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: true,
     methods: "GET,POST",
     allowedHeaders: "Content-Type, Authorization",
   }),
@@ -283,7 +292,7 @@ app.get("/api/openstack/cloud-summary", async (req, res) => {
     try {
       const subnetData = await osJson(`${NEUTRON_URL}/subnets`);
       subnets = subnetData.subnets || [];
-    } catch (_) {}
+    } catch (_) { }
 
     // Map subnet id -> cidr
     const subnetMap = {};
@@ -393,7 +402,7 @@ app.get("/api/openstack/cloud-summary", async (req, res) => {
           direction: r.direction,
           action: "ALLOW",
         }));
-    } catch (_) {}
+    } catch (_) { }
 
     res.json({
       stats,
@@ -868,6 +877,12 @@ app.post("/api/openstack/launch-instance", async (req, res) => {
    automatically discover the WSL IP via `wsl hostname -I`.
    ========================= */
 async function resolveKeystoneUrl() {
+  // If the user explicitly set KEYSTONE_URL in .env, respect it — no auto-detection
+  if (process.env.KEYSTONE_URL) {
+    console.log(`  ✓ Using KEYSTONE_URL from .env: ${KEYSTONE_URL}`);
+    return;
+  }
+
   // If URL already has a non-loopback IP, use it as-is
   if (!KEYSTONE_URL.includes("127.0.0.1") && !KEYSTONE_URL.includes("localhost")) {
     return;

@@ -1,11 +1,12 @@
-import axios from "axios";
 import {
 	extractDeviceData,
+	extractOvsdbData,
 	extractDevices,
 	generatePortDots,
 } from "./TopologyUtils";
 
 const ODL_API_BASE = "/api/rests/data";
+const ODL_LEGACY_BASE = "/api/restconf/operational";
 
 const ENV = {
 	getBaseURL: (serviceName) => {
@@ -38,74 +39,142 @@ const NetworkTopologySvc = {
 		)}/rests/data/network-topology:network-topology`;
 	},
 
-	async getNode(node) {
+	async requestJson(paths) {
+		for (const path of paths) {
+			const response = await fetch(path, {
+				method: "GET",
+				headers: {
+					Authorization: "Basic " + btoa("admin:admin"),
+					Accept: "application/json",
+				},
+			});
+
+			if (!response.ok) {
+				if (response.status === 404 || response.status === 409) {
+					continue;
+				}
+
+				const text = await response.text();
+				throw new Error(`Request failed (${response.status}): ${text}`);
+			}
+
+			return response.json();
+		}
+
+		throw new Error("Topology endpoint not found on current ODL instance");
+	},
+
+	async getNode(targetTopology = "all") {
 		try {
-			const [topology, inventory] = await Promise.all([
-				this.fetchTopology(node),
+			const [topologies, inventory] = await Promise.all([
+				this.fetchAllTopologies(),
 				this.fetchInventory(),
 			]);
-				if (!topology) {
-			throw new Error("Topology is undefined — check API response or node ID");
-		}
-			const { nodes, links } = extractDeviceData(topology);
-			const dots = generatePortDots(links, inventory);
-			console.log("Processed Nodes:", nodes);
-			console.log("Processed Links:", links);
-			console.log("Processed Inventories:", inventory);
+
+			if (!topologies || topologies.length === 0) {
+				throw new Error("Topology is undefined — check API response or node ID");
+			}
+
+			let allNodes = [];
+			let allLinks = [];
+			const addedNodeIds = new Set();
+			const addedLinkKeys = new Set();
+
+			// Filter topologies based on targetTopology ('all' | 'ovsdb:1' | 'flow:1')
+			const targetTopos = topologies.filter((t) => {
+				const topoId = t?.["topology-id"];
+				if (targetTopology === "all" || targetTopology === "merged") return true;
+				return topoId === targetTopology;
+			});
+
+			// If specific filter resulted in empty, fallback to available topologies
+			const toProcess = targetTopos.length > 0 ? targetTopos : topologies;
+
+			toProcess.forEach((topology) => {
+				const topoId = topology?.["topology-id"] || "";
+				let result = { nodes: [], links: [] };
+
+				if (topoId === "ovsdb:1" || topology?.node?.some((n) => n["node-id"]?.includes("ovsdb"))) {
+					result = extractOvsdbData(topology);
+				} else {
+					result = extractDeviceData(topology);
+				}
+
+				// Deduplicate nodes
+				result.nodes.forEach((n) => {
+					if (!addedNodeIds.has(n.id)) {
+						addedNodeIds.add(n.id);
+						allNodes.push(n);
+					}
+				});
+
+				// Deduplicate links
+				result.links.forEach((l) => {
+					const key1 = `${l.from}:${l.to}`;
+					const key2 = `${l.to}:${l.from}`;
+					if (!addedLinkKeys.has(key1) && !addedLinkKeys.has(key2)) {
+						addedLinkKeys.add(key1);
+						addedLinkKeys.add(key2);
+						allLinks.push(l);
+					}
+				});
+			});
+
+			const dots = generatePortDots(allLinks, inventory || []);
+			console.log("Processed Nodes:", allNodes);
+			console.log("Processed Links:", allLinks);
 			console.log("Processed Dots:", dots);
 
-			return { nodes, links, dots };
+			return { nodes: allNodes, links: allLinks, dots, rawTopologies: topologies };
 		} catch (error) {
 			console.error("Error in getNode:", error);
 			throw error;
 		}
 	},
-	async fetchTopology(node) {
+
+	async fetchAllTopologies() {
 		try {
-			const response = await fetch(
-				`${ODL_API_BASE}/network-topology:network-topology/topology=${encodeURIComponent(node)}`,
-				{
-					method: "GET",
-					headers: {
-						Authorization: "Basic " + btoa("admin:admin"),
-						Accept: "application/json",
-					},
-				}
-			);
-			if (!response.ok) {
-				const text = await response.text();
-				throw new Error(`Topology request failed (${response.status}): ${text}`);
-			}
-			const data = await response.json();
-			const topology = data?.["network-topology:topology"]?.[0];
-			if (!topology) {
-				throw new Error("Topology payload did not contain network-topology:topology");
-			}
-			return topology;
+			const data = await this.requestJson([
+				`${ODL_API_BASE}/network-topology:network-topology?content=nonconfig`,
+				`${ODL_API_BASE}/network-topology:network-topology?content=operational`,
+				`${ODL_API_BASE}/network-topology:network-topology`,
+				`${ODL_LEGACY_BASE}/network-topology:network-topology/`,
+			]);
+			const topologies =
+				data?.["network-topology:network-topology"]?.topology ||
+				data?.["network-topology:topology"] ||
+				data?.topology ||
+				[];
+			return Array.isArray(topologies) ? topologies : [topologies];
 		} catch (err) {
 			console.error("Topology fetch error:", err);
 			throw err;
 		}
 	},
+
+	async fetchTopology(node) {
+		const topologies = await this.fetchAllTopologies();
+		const topology = topologies.find((item) => item?.["topology-id"] === node) || topologies[0];
+		if (!topology) {
+			throw new Error("Topology payload did not contain network-topology:topology");
+		}
+		return topology;
+	},
 	async fetchInventory() {
 		try {
-			const response = await fetch(
+			const invData = await this.requestJson([
+				`${ODL_API_BASE}/opendaylight-inventory:nodes?content=nonconfig`,
+				`${ODL_API_BASE}/opendaylight-inventory:nodes?content=operational`,
 				`${ODL_API_BASE}/opendaylight-inventory:nodes`,
-				{
-					method: "GET",
-					headers: {
-						Authorization: "Basic " + btoa("admin:admin"),
-						Accept: "application/json",
-					},
-				}
-			);
-			if (!response.ok) {
-				const text = await response.text();
-				throw new Error(`Inventory request failed (${response.status}): ${text}`);
-			}
-			const invData = await response.json();
+				`${ODL_LEGACY_BASE}/opendaylight-inventory:nodes/`,
+			]);
 			console.log(invData);
-			return invData?.["opendaylight-inventory:nodes"]?.node || [];
+			return (
+				invData?.["opendaylight-inventory:nodes"]?.node ||
+				invData?.["opendaylight-inventory:nodes"]?.["opendaylight-inventory:node"] ||
+				invData?.node ||
+				[]
+			);
 		} catch (err) {
 			console.error("Failed to fetch inventory:", err);
 			return [];
