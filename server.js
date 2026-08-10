@@ -313,20 +313,34 @@ app.get("/api/openstack/cloud-summary", async (req, res) => {
     // Build virtualMachines list matching what Cloud.jsx expects
     const virtualMachines = servers.map((server) => {
       const port = portByServer[server.id];
-      const fixedIp = port?.fixed_ips?.[0];
-      const ipAddr =
-        fixedIp?.ip_address ||
-        Object.values(server.addresses || {})?.[0]?.[0]?.addr ||
-        "N/A";
+      const allIps = [];
+      if (port?.fixed_ips) {
+        port.fixed_ips.forEach((f) => {
+          if (f.ip_address) allIps.push(f.ip_address);
+        });
+      }
+      if (allIps.length === 0 && server.addresses) {
+        Object.values(server.addresses).forEach((addrList) => {
+          if (Array.isArray(addrList)) {
+            addrList.forEach((a) => {
+              if (a.addr && !allIps.includes(a.addr)) allIps.push(a.addr);
+            });
+          }
+        });
+      }
+
+      // Prioritize IPv4 first, or join multiple IPs
+      const ipv4 = allIps.find((ip) => !ip.includes(":"));
+      const ipAddr = allIps.length > 0 ? (ipv4 || allIps[0]) : "N/A";
       const networkName =
         Object.keys(server.addresses || {})?.[0] || port?.network_id || "N/A";
-      const subnetInfo = fixedIp ? subnetMap[fixedIp.subnet_id] : null;
 
       return {
         id: server.id,
         name: server.name,
         status: server.status,
         ip: ipAddr,
+        allIps,
         network: networkName,
         zone: server["OS-EXT-AZ:availability_zone"] || "nova",
         logicalPort: port?.id || null,
@@ -367,15 +381,34 @@ app.get("/api/openstack/cloud-summary", async (req, res) => {
 
     // Build OVN networks for Cloud.jsx OVN Networks panel
     const ovnNetworks = networks.map((net) => {
-      const subnetId = net.subnets?.[0];
-      const subnet = subnetId ? subnetMap[subnetId] : null;
+      const netSubnets = (net.subnets || []).map((id) => subnetMap[id]).filter(Boolean);
+      const ipv4Subnet = netSubnets.find(
+        (s) => s.ip_version === 4 || (s.cidr && !s.cidr.includes(":"))
+      );
+      const ipv6Subnet = netSubnets.find(
+        (s) => s.ip_version === 6 || (s.cidr && s.cidr.includes(":"))
+      );
+
+      // Prefer IPv4 CIDR for clear display, or show both if dual-stacked
+      let cidrDisplay = "N/A";
+      if (ipv4Subnet && ipv6Subnet) {
+        cidrDisplay = `${ipv4Subnet.cidr}`;
+      } else if (ipv4Subnet) {
+        cidrDisplay = ipv4Subnet.cidr;
+      } else if (ipv6Subnet) {
+        cidrDisplay = ipv6Subnet.cidr;
+      } else if (netSubnets.length > 0) {
+        cidrDisplay = netSubnets[0].cidr;
+      }
+
       const segId = net.provider_segmentation_id;
       const netType = (net.provider_network_type || "vxlan").toUpperCase();
 
       return {
         name: net.name,
         type: "OVN Logical Switch",
-        cidr: subnet?.cidr || "N/A",
+        cidr: cidrDisplay,
+        subnets: netSubnets.map((s) => s.cidr),
         segmentation: segId ? `${netType}-${segId}` : netType,
         status: net.admin_state_up ? "ACTIVE" : "DOWN",
         id: net.id,
@@ -909,6 +942,76 @@ app.post("/api/openstack/create-network", async (req, res) => {
 });
 
 app.post("/api/openstack/launch-instance", handleServerCreate);
+
+/* =========================
+   VM MANAGEMENT: DELETE VM & SERVER ACTIONS (START, STOP, REBOOT)
+   ========================= */
+app.delete(["/api/openstack/servers/:id", "/api/openstack/delete-vm/:id"], async (req, res) => {
+  const { id } = req.params;
+  try {
+    const response = await osFetch(`${NOVA_URL}/servers/${id}`, {
+      method: "DELETE",
+    });
+    if (!response.ok && response.status !== 404 && response.status !== 204) {
+      const text = await response.text();
+      throw new Error(`Delete VM failed (${response.status}): ${text}`);
+    }
+    res.json({ success: true, message: `VM ${id} deleted successfully.` });
+  } catch (err) {
+    console.error("Delete VM error:", err);
+    res.status(500).json({ error: err.message || "Failed to delete VM" });
+  }
+});
+
+app.post("/api/openstack/servers/:id/action", async (req, res) => {
+  const { id } = req.params;
+  const { action } = req.body; // "start", "stop", "reboot"
+  try {
+    let body = {};
+    if (action === "start") body = { "os-start": null };
+    else if (action === "stop") body = { "os-stop": null };
+    else if (action === "reboot") body = { reboot: { type: "SOFT" } };
+    else {
+      return res.status(400).json({ error: "Invalid action. Supported: start, stop, reboot" });
+    }
+
+    const response = await osFetch(`${NOVA_URL}/servers/${id}/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok && response.status !== 202) {
+      const text = await response.text();
+      throw new Error(`Server action failed (${response.status}): ${text}`);
+    }
+
+    res.json({ success: true, message: `Server action "${action}" triggered successfully.` });
+  } catch (err) {
+    console.error("Server action error:", err);
+    res.status(500).json({ error: err.message || "Failed to perform server action" });
+  }
+});
+
+/* =========================
+   NETWORK MANAGEMENT: DELETE NETWORK
+   ========================= */
+app.delete(["/api/openstack/networks/:id", "/api/openstack/delete-network/:id"], async (req, res) => {
+  const { id } = req.params;
+  try {
+    const response = await osFetch(`${NEUTRON_URL}/networks/${id}`, {
+      method: "DELETE",
+    });
+    if (!response.ok && response.status !== 404 && response.status !== 204) {
+      const text = await response.text();
+      throw new Error(`Delete network failed (${response.status}): ${text}`);
+    }
+    res.json({ success: true, message: `Network ${id} deleted successfully.` });
+  } catch (err) {
+    console.error("Delete network error:", err);
+    res.status(500).json({ error: err.message || "Failed to delete network" });
+  }
+});
 
 /* =========================
    AUTO-DETECT WSL IP: If KEYSTONE_URL uses 127.0.0.1 and is unreachable from Windows,

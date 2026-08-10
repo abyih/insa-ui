@@ -38,10 +38,12 @@ class AppErrorBoundary extends React.Component {
 }
 
 function TopologyRoute() {
-  const [topo, setTopo]          = React.useState(null);
-  const [loading, setLoading]    = React.useState(true);
-  const [error, setError]        = React.useState(null);
-  const [filter, setFilter]      = React.useState("all");
+  const [rawTopo, setRawTopo]              = React.useState(null);
+  const [cloudData, setCloudData]          = React.useState(null);
+  const [loading, setLoading]              = React.useState(true);
+  const [error, setError]                  = React.useState(null);
+  const [filter, setFilter]                = React.useState("all");
+  const [crossCheck, setCrossCheck]        = React.useState(true);
 
   const loadTopology = (targetFilter = filter) => {
     setLoading(true);
@@ -54,44 +56,15 @@ function TopologyRoute() {
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
       ])
-        .then(([topoData, cloudData]) => {
-          // Cross-reference: only keep VMs that belong to the user's OpenStack project
-          if (cloudData && cloudData.virtualMachines && topoData?.nodes) {
-            const myVmIds = new Set(
-              cloudData.virtualMachines.map((vm) => vm.id)
-            );
-
-            // Identify topology VM node IDs that do NOT belong to the user
-            const foreignVmNodeIds = new Set();
-            topoData.nodes.forEach((n) => {
-              if (n.group === "vm" && n.nodeDetails?.vmUuid) {
-                // VM node IDs are formatted as "vm-<uuid>"
-                if (!myVmIds.has(n.nodeDetails.vmUuid)) {
-                  foreignVmNodeIds.add(n.id);
-                }
-              }
-            });
-
-            if (foreignVmNodeIds.size > 0) {
-              // Filter out foreign VMs and their links
-              topoData.nodes = topoData.nodes.filter(
-                (n) => !foreignVmNodeIds.has(n.id)
-              );
-              topoData.links = topoData.links.filter(
-                (l) =>
-                  !foreignVmNodeIds.has(l.from) &&
-                  !foreignVmNodeIds.has(l.to)
-              );
-              console.log(
-                `Topology: filtered out ${foreignVmNodeIds.size} VM(s) from other OpenStack projects`
-              );
-            }
-          }
-
-          setTopo(topoData);
+        .then(([topoData, cloud]) => {
+          setRawTopo(topoData);
+          setCloudData(cloud);
           setLoading(false);
         })
-        .catch((err) => { setError(err.message); setLoading(false); });
+        .catch((err) => {
+          setError(err.message);
+          setLoading(false);
+        });
     });
   };
 
@@ -99,8 +72,42 @@ function TopologyRoute() {
     loadTopology(filter);
   }, [filter]);
 
+  // Compute displayed topology based on cross-check toggle
+  const displayedTopology = React.useMemo(() => {
+    if (!rawTopo) return null;
+
+    // If cross-checking is turned OFF or OpenStack data is unavailable, show raw OVSDB topology
+    if (!crossCheck || !cloudData || !cloudData.virtualMachines) {
+      return {
+        ...rawTopo,
+        nodes: [...(rawTopo.nodes || [])],
+        links: [...(rawTopo.links || [])],
+      };
+    }
+
+    const myVmIds = new Set(cloudData.virtualMachines.map((vm) => vm.id));
+    const foreignVmNodeIds = new Set();
+    (rawTopo.nodes || []).forEach((n) => {
+      if (n.group === "vm" && n.nodeDetails?.vmUuid) {
+        if (!myVmIds.has(n.nodeDetails.vmUuid)) {
+          foreignVmNodeIds.add(n.id);
+        }
+      }
+    });
+
+    if (foreignVmNodeIds.size === 0) return rawTopo;
+
+    return {
+      ...rawTopo,
+      nodes: (rawTopo.nodes || []).filter((n) => !foreignVmNodeIds.has(n.id)),
+      links: (rawTopo.links || []).filter(
+        (l) => !foreignVmNodeIds.has(l.from) && !foreignVmNodeIds.has(l.to)
+      ),
+    };
+  }, [rawTopo, cloudData, crossCheck]);
+
   if (loading) return <Spinner />;
-  if (error || !topo) return (
+  if (error || !displayedTopology) return (
     <div className="flex flex-col items-center justify-center h-64 text-zinc-400 gap-3">
       <div>Topology unavailable — ODL controller not reachable or returned error: {error}</div>
       <button 
@@ -114,10 +121,13 @@ function TopologyRoute() {
 
   return (
     <TopologySimple 
-      topologyData={topo} 
+      topologyData={displayedTopology} 
       currentFilter={filter}
       onFilterChange={(newFilter) => setFilter(newFilter)}
-      onReload={() => loadTopology(filter)} 
+      onReload={() => loadTopology(filter)}
+      crossCheckOpenstack={crossCheck}
+      onToggleCrossCheck={(val) => setCrossCheck(val)}
+      openstackConnected={Boolean(cloudData?.virtualMachines)}
     />
   );
 }

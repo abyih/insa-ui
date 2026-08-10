@@ -5,7 +5,15 @@ import "./topology.css";
 import { io } from "socket.io-client";
 import { RefreshCw, Layout, Info, Server, Cpu, Network as NetIcon, Monitor, ShieldCheck } from "lucide-react";
 
-const TopologySimple = ({ topologyData, currentFilter = "all", onFilterChange, onReload }) => {
+const TopologySimple = ({
+	topologyData,
+	currentFilter = "all",
+	onFilterChange,
+	onReload,
+	crossCheckOpenstack = true,
+	onToggleCrossCheck,
+	openstackConnected = true,
+}) => {
 	const containerRef = useRef(null);
 	const edgesRef = useRef(null);
 
@@ -485,7 +493,36 @@ const TopologySimple = ({ topologyData, currentFilter = "all", onFilterChange, o
 						Logical Network Topology
 					</h3>
 
-					<div className="flex items-center gap-3">
+					<div className="flex items-center gap-2.5 flex-wrap">
+						{/* OpenStack Cross-Check Toggle */}
+						{onToggleCrossCheck && (
+							<button
+								onClick={() => onToggleCrossCheck(!crossCheckOpenstack)}
+								className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm ${
+									crossCheckOpenstack
+										? "bg-indigo-950/80 border-indigo-700 text-indigo-200 hover:bg-indigo-900"
+										: "bg-zinc-950 border-zinc-800 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+								}`}
+								title={
+									crossCheckOpenstack
+										? "Cross-checking ACTIVE: showing only VMs belonging to your OpenStack project"
+										: "Cross-checking OFF: showing all raw infrastructure VMs discovered by OVSDB across all tenants"
+								}
+							>
+								<ShieldCheck className={`w-3.5 h-3.5 ${crossCheckOpenstack ? "text-indigo-400" : "text-zinc-500"}`} />
+								<span>OpenStack Filter:</span>
+								<span
+									className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${
+										crossCheckOpenstack
+											? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+											: "bg-zinc-800 text-zinc-400"
+									}`}
+								>
+									{crossCheckOpenstack ? "Project Only" : "All OVSDB"}
+								</span>
+							</button>
+						)}
+
 						{/* Topology Dropdown Selector */}
 						{onFilterChange && (
 							<div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs">
@@ -504,10 +541,10 @@ const TopologySimple = ({ topologyData, currentFilter = "all", onFilterChange, o
 
 						<button
 							onClick={onReload}
-							className="px-4 py-2 bg-zinc-50 hover:bg-zinc-200 text-zinc-950 font-bold rounded-lg text-xs flex items-center gap-1.5 transition duration-150 shadow-sm"
+							className="px-4 py-2 bg-zinc-50 hover:bg-zinc-200 text-zinc-950 font-bold rounded-lg text-xs flex items-center gap-1.5 transition duration-150 shadow-sm cursor-pointer"
 						>
 							<RefreshCw className="w-3.5 h-3.5" />
-							Reload Topology
+							Reload
 						</button>
 					</div>
 				</div>
