@@ -25,7 +25,7 @@ let NOVA_URL = process.env.NOVA_URL;
 let GLANCE_URL = process.env.GLANCE_URL;
 
 const OS_USERNAME = process.env.OS_USERNAME || "admin";
-const OS_PASSWORD = process.env.OS_PASSWORD || "secret";
+const OS_PASSWORD = process.env.OS_PASSWORD || "123456";
 const OS_PROJECT_NAME = process.env.OS_PROJECT_NAME || "admin";
 const OS_USER_DOMAIN_NAME = process.env.OS_USER_DOMAIN_NAME || "default";
 const OS_PROJECT_DOMAIN_NAME = process.env.OS_PROJECT_DOMAIN_NAME || "default";
@@ -404,6 +404,28 @@ app.get("/api/openstack/cloud-summary", async (req, res) => {
         }));
     } catch (_) { }
 
+    // Fetch available flavors and images for VM creation dropdowns
+    let availableFlavors = [];
+    try {
+      const fRes = await osJson(`${NOVA_URL}/flavors/detail`);
+      availableFlavors = (fRes.flavors || []).map((f) => ({
+        id: f.id,
+        name: f.name,
+        ram: f.ram,
+        vcpus: f.vcpus,
+        disk: f.disk,
+      }));
+    } catch (_) { }
+
+    let availableImages = [];
+    try {
+      const imgRes = await osJson(`${GLANCE_URL}/images`);
+      const imgs = imgRes.images || imgRes.data || [];
+      availableImages = imgs
+        .filter((i) => !i.status || i.status === "active")
+        .map((i) => ({ id: i.id, name: i.name || i.id }));
+    } catch (_) { }
+
     res.json({
       stats,
       virtualMachines,
@@ -413,6 +435,8 @@ app.get("/api/openstack/cloud-summary", async (req, res) => {
       flows: [], // Live flows come from OVN southbound; placeholder for now
       securityRules,
       infrastructureStatus,
+      availableFlavors,
+      availableImages,
     });
   } catch (error) {
     console.error("Cloud summary error:", error.message);
@@ -682,55 +706,104 @@ app.get("/api/openstack/acl-list/:logicalSwitch", async (req, res) => {
   );
 });
 
-/* =========================
-   FIX: ADD MISSING /api/openstack/create-vm ENDPOINT
-   ========================= */
-app.post("/api/openstack/create-vm", async (req, res) => {
+async function handleServerCreate(req, res) {
   const { name, flavor, image, network } = req.body;
 
-  if (!name || !flavor || !image || !network) {
-    return res
-      .status(400)
-      .json({ error: "name, flavor, image, and network are required." });
+  if (!name) {
+    return res.status(400).json({ error: "VM instance name is required." });
   }
 
   try {
-    // Resolve flavor ID
-    const flavorsData = await osJson(`${NOVA_URL}/flavors`);
-    const flavorObj = (flavorsData.flavors || []).find(
-      (f) => f.name === flavor || f.id === flavor,
+    // 1. Resolve Flavor
+    let flavors = [];
+    try {
+      const fData = await osJson(`${NOVA_URL}/flavors/detail`);
+      flavors = fData.flavors || [];
+    } catch (_) {
+      try {
+        const fData = await osJson(`${NOVA_URL}/flavors`);
+        flavors = fData.flavors || [];
+      } catch (_) { }
+    }
+
+    let flavorObj = flavors.find(
+      (f) =>
+        f.name === flavor ||
+        f.id === flavor ||
+        (f.name && flavor && f.name.toLowerCase() === flavor.toLowerCase())
     );
+
+    if (!flavorObj && flavors.length > 0) {
+      // Fallback: pick smallest flavor by RAM
+      flavorObj = [...flavors].sort((a, b) => (a.ram || 512) - (b.ram || 512))[0];
+    }
+
     if (!flavorObj) {
-      return res.status(400).json({ error: `Flavor not found: ${flavor}` });
+      return res.status(400).json({ error: "No suitable Nova flavor found in OpenStack." });
     }
 
-    // Resolve image ID
-    const imagesData = await osJson(
-      `${GLANCE_URL}/images?name=${encodeURIComponent(image)}`,
+    // 2. Resolve Image
+    let images = [];
+    try {
+      const imgRes = await osJson(`${GLANCE_URL}/images`);
+      images = imgRes.images || imgRes.data || [];
+    } catch (_) {
+      try {
+        const imgRes = await osJson(`${GLANCE_URL}/v2/images`);
+        images = imgRes.images || [];
+      } catch (_) { }
+    }
+
+    const activeImages = images.filter((i) => !i.status || i.status === "active");
+    let imageObj = activeImages.find(
+      (i) =>
+        i.name === image ||
+        i.id === image ||
+        (i.name && image && i.name.toLowerCase().includes(image.toLowerCase())) ||
+        (i.name && image && image.toLowerCase().includes(i.name.toLowerCase()))
     );
-    const imageObj = (imagesData.images || [])[0];
+
+    if (!imageObj && activeImages.length > 0) {
+      imageObj = activeImages[0];
+    }
+
     if (!imageObj) {
-      return res.status(400).json({ error: `Image not found: ${image}` });
+      return res.status(400).json({ error: "No active Glance image found in OpenStack." });
     }
 
-    // Resolve network ID
-    const networksData = await osJson(
-      `${NEUTRON_URL}/networks?name=${encodeURIComponent(network)}`,
-    );
-    const networkObj = (networksData.networks || [])[0];
-    if (!networkObj) {
-      return res.status(400).json({ error: `Network not found: ${network}` });
-    }
+    // 3. Resolve Network (with active subnet)
+    let networkObj = null;
+    try {
+      const netRes = await osJson(`${NEUTRON_URL}/networks`);
+      const nets = netRes.networks || [];
 
-    // Create the server
+      if (network) {
+        networkObj =
+          nets.find(
+            (n) => (n.name === network || n.id === network) && n.subnets && n.subnets.length > 0
+          ) || nets.find((n) => n.name === network || n.id === network);
+      }
+
+      if (!networkObj) {
+        networkObj =
+          nets.find((n) => !n["router:external"] && n.subnets && n.subnets.length > 0) ||
+          nets.find((n) => n.subnets && n.subnets.length > 0) ||
+          nets[0];
+      }
+    } catch (_) { }
+
     const serverBody = {
       server: {
         name,
         flavorRef: flavorObj.id,
         imageRef: imageObj.id,
-        networks: [{ uuid: networkObj.id }],
+        ...(networkObj ? { networks: [{ uuid: networkObj.id }] } : {}),
       },
     };
+
+    console.log(
+      `[VM Create] Provisioning "${name}" (Flavor: ${flavorObj.name}, Image: ${imageObj.name}, Network: ${networkObj?.name || "auto"})`
+    );
 
     const created = await osJson(`${NOVA_URL}/servers`, {
       method: "POST",
@@ -738,16 +811,45 @@ app.post("/api/openstack/create-vm", async (req, res) => {
       body: JSON.stringify(serverBody),
     });
 
+    const serverId = created.server?.id;
+    if (!serverId) {
+      return res.status(500).json({ error: "Nova server creation returned no ID." });
+    }
+
+    // 4. Poll server status until ACTIVE or ERROR
+    let currentServer = created.server;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      try {
+        const detail = await osJson(`${NOVA_URL}/servers/${serverId}`);
+        currentServer = detail.server || currentServer;
+        if (currentServer.status === "ACTIVE" || currentServer.status === "ERROR") {
+          break;
+        }
+      } catch (_) { }
+    }
+
+    if (currentServer.status === "ERROR") {
+      const fault = currentServer.fault?.message || "Nova boot failed into ERROR state.";
+      console.error(`[VM Create Error] Instance ${name} (${serverId}): ${fault}`);
+      return res.status(500).json({
+        error: `VM boot failed: ${fault}`,
+        server: currentServer,
+      });
+    }
+
     res.json({
       success: true,
-      server: created.server,
-      message: `VM "${name}" created successfully.`,
+      server: currentServer,
+      message: `VM "${name}" provisioned successfully (${currentServer.status}).`,
     });
   } catch (error) {
-    console.error("Create VM error:", error);
+    console.error("[VM Create Failed]:", error);
     res.status(500).json({ error: error.message || "Failed to create VM" });
   }
-});
+}
+
+app.post("/api/openstack/create-vm", handleServerCreate);
 
 /* =========================
    FIX: ADD MISSING /api/openstack/create-network ENDPOINT
@@ -806,71 +908,7 @@ app.post("/api/openstack/create-network", async (req, res) => {
   }
 });
 
-/* =========================
-   FIX: ADD MISSING /api/openstack/launch-instance ENDPOINT
-   (Same as create-vm but named differently for the Launch Instance modal)
-   ========================= */
-app.post("/api/openstack/launch-instance", async (req, res) => {
-  const { name, flavor, image, network } = req.body;
-
-  if (!name || !flavor || !image || !network) {
-    return res
-      .status(400)
-      .json({ error: "name, flavor, image, and network are required." });
-  }
-
-  try {
-    const flavorsData = await osJson(`${NOVA_URL}/flavors`);
-    const flavorObj = (flavorsData.flavors || []).find(
-      (f) => f.name === flavor || f.id === flavor,
-    );
-    if (!flavorObj) {
-      return res.status(400).json({ error: `Flavor not found: ${flavor}` });
-    }
-
-    const imagesData = await osJson(
-      `${GLANCE_URL}/images?name=${encodeURIComponent(image)}`,
-    );
-    const imageObj = (imagesData.images || [])[0];
-    if (!imageObj) {
-      return res.status(400).json({ error: `Image not found: ${image}` });
-    }
-
-    const networksData = await osJson(
-      `${NEUTRON_URL}/networks?name=${encodeURIComponent(network)}`,
-    );
-    const networkObj = (networksData.networks || [])[0];
-    if (!networkObj) {
-      return res.status(400).json({ error: `Network not found: ${network}` });
-    }
-
-    const serverBody = {
-      server: {
-        name,
-        flavorRef: flavorObj.id,
-        imageRef: imageObj.id,
-        networks: [{ uuid: networkObj.id }],
-      },
-    };
-
-    const created = await osJson(`${NOVA_URL}/servers`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(serverBody),
-    });
-
-    res.json({
-      success: true,
-      server: created.server,
-      message: `Instance "${name}" launched successfully.`,
-    });
-  } catch (error) {
-    console.error("Launch instance error:", error);
-    res
-      .status(500)
-      .json({ error: error.message || "Failed to launch instance" });
-  }
-});
+app.post("/api/openstack/launch-instance", handleServerCreate);
 
 /* =========================
    AUTO-DETECT WSL IP: If KEYSTONE_URL uses 127.0.0.1 and is unreachable from Windows,

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { DataSet } from "vis-data";
 import { Network } from "vis-network";
+import { X, Info, Layout, Server, Globe, Monitor, Cpu, Network as NetIcon } from "lucide-react";
 
 const CloudTopology = ({ virtualMachines, networks, routers, ports, onClose }) => {
   const containerRef = useRef(null);
@@ -10,7 +11,6 @@ const CloudTopology = ({ virtualMachines, networks, routers, ports, onClose }) =
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // We create nodes and edges from our OpenStack data
     const nodesArray = [];
     const edgesArray = [];
 
@@ -19,51 +19,48 @@ const CloudTopology = ({ virtualMachines, networks, routers, ports, onClose }) =
       nodesArray.push({
         id: router.id,
         label: router.name || "Router",
-        title: `Router<br>ID: ${router.id}<br>Status: ${router.status}`,
+        title: `<b>Router</b><br>Name: <b>${router.name || "N/A"}</b><br>ID: <b>${router.id}</b><br>Status: <b>${router.status}</b>`,
         group: "router",
-        shape: "image",
-        // Using a built-in vis-network icon or text if image is missing. Let's use standard shapes.
-        image: "assets/images/Device_router_3062_unknown_64.png", 
-        fallbackShape: "box",
-        color: { background: "#4A90E2", border: "#2C3E50" },
-        font: { color: "white" }
+        value: 30,
+        entityData: router,
       });
     });
 
     // 2. Add Networks (Logical Switches)
     networks?.forEach((net) => {
+      const segLabel = net.segmentation ? ` (${net.segmentation})` : "";
       nodesArray.push({
         id: net.id,
-        label: net.name || "Network",
-        title: `Network<br>CIDR: ${net.cidr}<br>Type: ${net.segmentation}`,
+        label: `${net.name || "Network"}`,
+        title: `<b>Network</b><br>Name: <b>${net.name || "N/A"}</b><br>CIDR: <b>${net.cidr || "N/A"}</b><br>Type: <b>${net.type || "OVN Logical Switch"}</b><br>Segmentation: <b>${net.segmentation || "N/A"}</b>`,
         group: "network",
-        shape: "ellipse",
-        color: { background: "#50E3C2", border: "#0B3954" },
-        font: { color: "black" }
+        value: 25,
+        entityData: net,
       });
     });
 
     // 3. Add Virtual Machines
     virtualMachines?.forEach((vm) => {
+      const isActive = vm.status === "ACTIVE";
       nodesArray.push({
         id: vm.id,
         label: vm.name || "VM",
-        title: `VM<br>IP: ${vm.ip}<br>Status: ${vm.status}`,
-        group: "vm",
-        shape: "box",
-        color: { background: "#F5A623", border: "#8B572A" },
-        font: { color: "white" }
+        title: `<b>Virtual Machine</b><br>Name: <b>${vm.name}</b><br>IP: <b>${vm.ip || "N/A"}</b><br>Status: <b>${vm.status}</b><br>Network: <b>${vm.network || "N/A"}</b><br>Zone: <b>${vm.zone || "N/A"}</b>`,
+        group: isActive ? "vm-active" : "vm-inactive",
+        value: 20,
+        entityData: vm,
       });
 
       // Connect VM to its network
       if (vm.logicalSwitch) {
-        // logicalSwitch is formatted as "neutron-<id>"
         const netId = vm.logicalSwitch.replace("neutron-", "");
         edgesArray.push({
           from: vm.id,
           to: netId,
-          color: { color: "#9B9B9B" },
+          title: `<b>${vm.name}</b> → <b>${vm.network || netId}</b><br>IP: <b>${vm.ip || "N/A"}</b>`,
+          color: { color: isActive ? "#10b981" : "#52525b" },
           width: 2,
+          smooth: { type: "curvedCW", roundness: 0.1 },
         });
       }
     });
@@ -77,9 +74,27 @@ const CloudTopology = ({ virtualMachines, networks, routers, ports, onClose }) =
           edgesArray.push({
             from: routerId,
             to: netId,
-            color: { color: "#4A90E2" },
+            title: `<b>Router Interface</b><br>Port: <b>${port.id?.slice(0, 8) || "N/A"}</b>`,
+            color: { color: "#818cf8" },
             width: 3,
-            dashes: true, // Router interfaces are dashed
+            dashes: [8, 4],
+            smooth: { type: "curvedCW", roundness: 0.15 },
+          });
+        }
+      }
+      // Router gateway (external network connection)
+      if (port.device_owner === "network:router_gateway") {
+        const routerId = port.device_id;
+        const netId = port.network_id;
+        if (routerId && netId) {
+          edgesArray.push({
+            from: routerId,
+            to: netId,
+            title: `<b>Router Gateway</b><br>External Network`,
+            color: { color: "#f59e0b" },
+            width: 3,
+            dashes: [12, 6],
+            smooth: { type: "curvedCCW", roundness: 0.15 },
           });
         }
       }
@@ -88,118 +103,213 @@ const CloudTopology = ({ virtualMachines, networks, routers, ports, onClose }) =
     const nodesDataSet = new DataSet(nodesArray);
     const edgesDataSet = new DataSet(edgesArray);
 
-    const data = {
-      nodes: nodesDataSet,
-      edges: edgesDataSet,
-    };
+    const data = { nodes: nodesDataSet, edges: edgesDataSet };
 
     const options = {
       autoResize: true,
       height: "100%",
       width: "100%",
-      physics: {
-        barnesHut: {
-          gravitationalConstant: -4000,
-          springConstant: 0.04,
-          springLength: 150,
+      nodes: {
+        size: 30,
+        font: {
+          color: "#f4f4f5",
+          face: "Inter, system-ui, sans-serif",
+          size: 13,
+          background: "rgba(24, 24, 27, 0.85)",
+          strokeWidth: 2,
+          strokeColor: "#09090b",
+        },
+        borderWidth: 2,
+        shadow: {
+          enabled: true,
+          color: "rgba(0,0,0,0.4)",
+          size: 8,
+          x: 0,
+          y: 2,
         },
       },
       edges: {
+        length: 200,
+        color: {
+          color: "#3f3f46",
+          highlight: "#6366f1",
+          hover: "#818cf8",
+        },
         smooth: {
           type: "continuous",
         },
-      },
-      nodes: {
         font: {
-          size: 14,
+          color: "#71717a",
+          face: "Inter, system-ui, sans-serif",
+          size: 10,
+          strokeWidth: 3,
+          strokeColor: "#09090b",
         },
-        borderWidth: 2,
+      },
+      physics: {
+        barnesHut: {
+          gravitationalConstant: -6000,
+          centralGravity: 0.25,
+          springLength: 180,
+          springConstant: 0.04,
+          damping: 0.12,
+        },
+        stabilization: {
+          iterations: 150,
+        },
       },
       interaction: {
         hover: true,
-        tooltipDelay: 200,
+        tooltipDelay: 150,
+        zoomView: true,
+        dragView: true,
+      },
+      groups: {
+        router: {
+          shape: "box",
+          color: {
+            background: "#1e1b4b",
+            border: "#6366f1",
+            highlight: { background: "#312e81", border: "#818cf8" },
+            hover: { background: "#312e81", border: "#a5b4fc" },
+          },
+          font: { color: "#e0e7ff", face: "Inter, system-ui, sans-serif", size: 14, bold: true },
+          borderWidth: 2,
+          shapeProperties: { borderRadius: 8 },
+          margin: 14,
+          shadow: {
+            enabled: true,
+            color: "rgba(99, 102, 241, 0.3)",
+            size: 12,
+          },
+        },
+        network: {
+          shape: "box",
+          color: {
+            background: "#064e3b",
+            border: "#10b981",
+            highlight: { background: "#065f46", border: "#34d399" },
+            hover: { background: "#065f46", border: "#6ee7b7" },
+          },
+          font: { color: "#ecfdf5", face: "Inter, system-ui, sans-serif", size: 13, bold: true },
+          borderWidth: 2,
+          shapeProperties: { borderRadius: 6 },
+          margin: 12,
+          shadow: {
+            enabled: true,
+            color: "rgba(16, 185, 129, 0.25)",
+            size: 10,
+          },
+        },
+        "vm-active": {
+          shape: "box",
+          color: {
+            background: "#1c1917",
+            border: "#22c55e",
+            highlight: { background: "#292524", border: "#4ade80" },
+            hover: { background: "#292524", border: "#86efac" },
+          },
+          font: { color: "#fafaf9", face: "Inter, system-ui, sans-serif", size: 12 },
+          borderWidth: 2,
+          shapeProperties: { borderRadius: 6 },
+          margin: 10,
+          shadow: {
+            enabled: true,
+            color: "rgba(34, 197, 94, 0.2)",
+            size: 8,
+          },
+        },
+        "vm-inactive": {
+          shape: "box",
+          color: {
+            background: "#1c1917",
+            border: "#a16207",
+            highlight: { background: "#292524", border: "#eab308" },
+            hover: { background: "#292524", border: "#facc15" },
+          },
+          font: { color: "#fafaf9", face: "Inter, system-ui, sans-serif", size: 12 },
+          borderWidth: 2,
+          shapeProperties: { borderRadius: 6 },
+          margin: 10,
+          shadow: {
+            enabled: true,
+            color: "rgba(161, 98, 7, 0.2)",
+            size: 8,
+          },
+        },
       },
     };
 
     const network = new Network(containerRef.current, data, options);
     setNetworkInstance(network);
 
+    // ── Click handler with path highlight ──
     const restoreDefaults = () => {
       const allNodes = nodesDataSet.get();
       const allEdges = edgesDataSet.get();
-      nodesDataSet.update(allNodes.map(n => ({ id: n.id, borderWidth: 2 })));
-      edgesDataSet.update(allEdges.map(e => {
-         const baseColor = e.color ? (typeof e.color === 'object' ? e.color.color : e.color) : '#9B9B9B';
-         return { id: e.id, color: { color: baseColor }, width: e.dashes ? 3 : 2 };
-      }));
+      nodesDataSet.update(allNodes.map((n) => ({ id: n.id, borderWidth: 2, opacity: 1 })));
+      edgesDataSet.update(
+        allEdges.map((e) => {
+          const baseColor = e.color ? (typeof e.color === "object" ? e.color.color : e.color) : "#3f3f46";
+          return { id: e.id, color: { color: baseColor }, width: e.dashes ? 3 : 2, opacity: 1 };
+        })
+      );
     };
 
     network.on("click", (params) => {
       try {
         if (params.nodes.length > 0) {
           const nodeId = params.nodes[0];
-          // Use String() to ensure safety between UUIDs and numeric IDs
           const node = nodesArray.find((n) => String(n.id) === String(nodeId));
-          
-          let entity = null;
+
           if (node) {
-            if (node.group === "vm") entity = virtualMachines?.find((v) => String(v.id) === String(nodeId));
-            if (node.group === "network") entity = networks?.find((n) => String(n.id) === String(nodeId));
-            if (node.group === "router") entity = routers?.find((r) => String(r.id) === String(nodeId));
-            setSelectedNode({ ...node, entityDetails: entity });
-          } else {
-            setSelectedNode(null);
-          }
+            setSelectedNode(node);
 
-          const allNodes = nodesDataSet.get();
-          const allEdges = edgesDataSet.get();
-
-          if (node && node.group === "vm") {
+            // Highlight connected path
             const connectedEdges = network.getConnectedEdges(nodeId);
-            const connectedNodes = network.getConnectedNodes(nodeId);
-            
-            let highlightNodes = [nodeId, ...connectedNodes];
-            let highlightEdges = [...connectedEdges];
+            const connectedNodes = new Set([nodeId, ...network.getConnectedNodes(nodeId)]);
 
-            connectedNodes.forEach(netId => {
-              const netNode = nodesDataSet.get(netId);
-              if (netNode && netNode.group === "network") {
-                const netEdges = network.getConnectedEdges(netId);
-                const netConnectedNodes = network.getConnectedNodes(netId);
-                
-                netConnectedNodes.forEach(rId => {
-                  const rNode = nodesDataSet.get(rId);
-                  if (rNode && rNode.group === "router") {
-                    highlightNodes.push(rId);
-                  }
+            // Second-degree connections (e.g. VM → Network → Router)
+            network.getConnectedNodes(nodeId).forEach((neighborId) => {
+              const neighborNode = nodesDataSet.get(neighborId);
+              if (neighborNode) {
+                network.getConnectedNodes(neighborId).forEach((secondId) => {
+                  connectedNodes.add(secondId);
                 });
-                
-                netEdges.forEach(eId => {
+                network.getConnectedEdges(neighborId).forEach((eId) => {
                   const edge = edgesDataSet.get(eId);
-                  if (edge && highlightNodes.includes(edge.from) && highlightNodes.includes(edge.to)) {
-                    if (!highlightEdges.includes(eId)) highlightEdges.push(eId);
+                  if (edge && connectedNodes.has(edge.from) && connectedNodes.has(edge.to)) {
+                    connectedEdges.push(eId);
                   }
                 });
               }
             });
 
-            nodesDataSet.update(allNodes.map(n => {
-              if (highlightNodes.includes(n.id)) {
-                 return { id: n.id, borderWidth: 5 }; // Highlight with thick border
-              } else {
-                 return { id: n.id, borderWidth: 2 }; // Keep fully visible
-              }
-            }));
+            const uniqueEdges = [...new Set(connectedEdges)];
 
-            edgesDataSet.update(allEdges.map(e => {
-              const baseColor = e.color ? (typeof e.color === 'object' ? e.color.color : e.color) : '#9B9B9B';
-              if (highlightEdges.includes(e.id)) {
-                 return { id: e.id, color: { color: baseColor }, width: 5 }; // Highlight with thick line
-              } else {
-                 return { id: e.id, color: { color: baseColor }, width: e.dashes ? 3 : 2 }; // Keep fully visible
-              }
-            }));
+            // Dim non-connected, highlight connected
+            const allNodes = nodesDataSet.get();
+            const allEdges = edgesDataSet.get();
+
+            nodesDataSet.update(
+              allNodes.map((n) => ({
+                id: n.id,
+                borderWidth: connectedNodes.has(n.id) ? 4 : 2,
+                opacity: connectedNodes.has(n.id) ? 1 : 0.25,
+              }))
+            );
+
+            edgesDataSet.update(
+              allEdges.map((e) => {
+                const baseColor = e.color ? (typeof e.color === "object" ? e.color.color : e.color) : "#3f3f46";
+                if (uniqueEdges.includes(e.id)) {
+                  return { id: e.id, color: { color: baseColor }, width: 4, opacity: 1 };
+                }
+                return { id: e.id, color: { color: "#27272a" }, width: 1, opacity: 0.15 };
+              })
+            );
           } else {
+            setSelectedNode(null);
             restoreDefaults();
           }
         } else {
@@ -216,113 +326,231 @@ const CloudTopology = ({ virtualMachines, networks, routers, ports, onClose }) =
     };
   }, [virtualMachines, networks, routers, ports]);
 
+  // ── Node Details Panel Renderer ──
+  const renderNodeDetails = () => {
+    if (!selectedNode) {
+      return (
+        <p className="text-zinc-500 text-xs leading-relaxed">
+          Click on any node in the topology graph to inspect its metadata, connections, and status.
+        </p>
+      );
+    }
+
+    const entity = selectedNode.entityData;
+    const group = selectedNode.group;
+
+    if (group === "router" && entity) {
+      return (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 pb-2 border-b border-zinc-800">
+            <Server className="w-4 h-4 text-indigo-400" />
+            <span className="text-sm font-bold text-zinc-100">{entity.name || "Router"}</span>
+            <span className={`ml-auto px-2 py-0.5 text-[10px] font-bold rounded-full ${entity.status === "ACTIVE" ? "bg-emerald-950 text-emerald-400 border border-emerald-800" : "bg-zinc-800 text-zinc-400"}`}>
+              {entity.status}
+            </span>
+          </div>
+          <div className="space-y-2">
+            <div>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase">Router ID</span>
+              <span className="block text-xs font-mono font-semibold text-zinc-200 break-all bg-zinc-950 p-1.5 rounded border border-zinc-800 mt-0.5">{entity.id}</span>
+            </div>
+            {entity.external_gateway_info && (
+              <div>
+                <span className="text-[10px] font-bold text-zinc-500 uppercase">External Gateway</span>
+                <span className="block text-xs font-mono text-indigo-300 mt-0.5">
+                  Network: {entity.external_gateway_info.network_id?.slice(0, 12) || "N/A"}...
+                </span>
+              </div>
+            )}
+            {entity.routes && entity.routes.length > 0 && (
+              <div>
+                <span className="text-[10px] font-bold text-zinc-500 uppercase">Static Routes</span>
+                <span className="block text-xs text-zinc-300 mt-0.5">{entity.routes.length} route(s)</span>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (group === "network" && entity) {
+      return (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 pb-2 border-b border-zinc-800">
+            <Globe className="w-4 h-4 text-emerald-400" />
+            <span className="text-sm font-bold text-zinc-100">{entity.name || "Network"}</span>
+            <span className={`ml-auto px-2 py-0.5 text-[10px] font-bold rounded-full ${entity.status === "ACTIVE" ? "bg-emerald-950 text-emerald-400 border border-emerald-800" : "bg-zinc-800 text-zinc-400"}`}>
+              {entity.status}
+            </span>
+          </div>
+          <div className="space-y-2">
+            <div>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase">Network ID</span>
+              <span className="block text-xs font-mono font-semibold text-zinc-200 break-all bg-zinc-950 p-1.5 rounded border border-zinc-800 mt-0.5">{entity.id}</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase">CIDR</span>
+              <span className="block text-xs font-mono text-emerald-300 mt-0.5">{entity.cidr || "N/A"}</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase">Type</span>
+              <span className="block text-xs text-zinc-300 mt-0.5">{entity.type || "N/A"}</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase">Segmentation</span>
+              <span className="block text-xs font-mono text-cyan-400 mt-0.5">{entity.segmentation || "N/A"}</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if ((group === "vm-active" || group === "vm-inactive") && entity) {
+      const isActive = entity.status === "ACTIVE";
+      return (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 pb-2 border-b border-zinc-800">
+            <Monitor className="w-4 h-4 text-cyan-400" />
+            <span className="text-sm font-bold text-zinc-100">{entity.name || "VM"}</span>
+            <span className={`ml-auto px-2 py-0.5 text-[10px] font-bold rounded-full ${isActive ? "bg-emerald-950 text-emerald-400 border border-emerald-800" : "bg-amber-950 text-amber-400 border border-amber-800"}`}>
+              {entity.status}
+            </span>
+          </div>
+          <div className="space-y-2">
+            <div>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase">Instance ID</span>
+              <span className="block text-xs font-mono font-semibold text-zinc-200 break-all bg-zinc-950 p-1.5 rounded border border-zinc-800 mt-0.5">{entity.id}</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase">IP Address</span>
+              <span className="block text-xs font-mono text-emerald-300 mt-0.5">{entity.ip || "N/A"}</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase">Network</span>
+              <span className="block text-xs text-zinc-300 mt-0.5">{entity.network || "N/A"}</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase">Availability Zone</span>
+              <span className="block text-xs text-zinc-400 mt-0.5">{entity.zone || "N/A"}</span>
+            </div>
+            {entity.logicalPort && (
+              <div>
+                <span className="text-[10px] font-bold text-zinc-500 uppercase">Logical Port</span>
+                <span className="block text-xs font-mono text-indigo-300 mt-0.5 break-all">{entity.logicalPort}</span>
+              </div>
+            )}
+            {entity.logicalSwitch && (
+              <div>
+                <span className="text-[10px] font-bold text-zinc-500 uppercase">Logical Switch</span>
+                <span className="block text-xs font-mono text-cyan-400 mt-0.5 break-all">{entity.logicalSwitch}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Fallback
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 pb-2 border-b border-zinc-800">
+          <Cpu className="w-4 h-4 text-zinc-400" />
+          <span className="text-sm font-bold text-zinc-100">{selectedNode.label}</span>
+        </div>
+        <div
+          className="text-xs text-zinc-300 font-mono leading-relaxed space-y-1.5"
+          dangerouslySetInnerHTML={{ __html: selectedNode.title }}
+        />
+      </div>
+    );
+  };
+
   return (
-    <div className="flex flex-col h-full w-full bg-slate-900 border border-slate-700 rounded-3xl overflow-hidden relative" style={{ minHeight: "600px" }}>
-      {/* Fix for Vis-Network default tooltips which might be hidden or unstyled */}
+    <div className="flex flex-col lg:flex-row gap-6 w-full" style={{ minHeight: "640px" }}>
+      {/* Main Graph Panel */}
+      <div className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl p-6 shadow-lg flex flex-col gap-4">
+        {/* Header */}
+        <div className="flex flex-wrap justify-between items-center gap-3">
+          <h3 className="text-base font-bold text-zinc-200 flex items-center gap-2">
+            <Layout className="w-5 h-5 text-indigo-400" />
+            OpenStack OVN Cloud Topology
+          </h3>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-zinc-800 hover:bg-red-500/20 text-zinc-300 hover:text-red-400 font-bold rounded-lg text-xs flex items-center gap-1.5 transition duration-200 border border-zinc-700 hover:border-red-500/50"
+          >
+            <X className="w-3.5 h-3.5" />
+            Close
+          </button>
+        </div>
+
+        {/* Vis-Network Canvas */}
+        <div
+          ref={containerRef}
+          className="w-full border border-zinc-800 rounded-lg relative overflow-hidden bg-zinc-950"
+          style={{ height: "520px" }}
+        />
+
+        {/* Legend Bar */}
+        <div className="flex flex-wrap items-center gap-5 text-xs text-zinc-300 bg-zinc-950/80 p-3.5 rounded-lg border border-zinc-800 shadow-inner">
+          <span className="font-bold text-zinc-200 flex items-center gap-1.5">
+            <Info className="w-3.5 h-3.5 text-indigo-400" />
+            Legend:
+          </span>
+          <div className="flex items-center gap-2">
+            <span className="w-3.5 h-3.5 rounded bg-[#1e1b4b] border-2 border-indigo-500 inline-block shadow-sm" />
+            <span>Router</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-3.5 h-3.5 rounded bg-[#064e3b] border-2 border-emerald-500 inline-block shadow-sm" />
+            <span>Network</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-3.5 h-3.5 rounded bg-[#1c1917] border-2 border-green-500 inline-block shadow-sm" />
+            <span>VM (Active)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-3.5 h-3.5 rounded bg-[#1c1917] border-2 border-amber-600 inline-block shadow-sm" />
+            <span>VM (Inactive)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-5 h-0.5 bg-indigo-400 rounded-full inline-block" style={{ borderTop: "2px dashed #818cf8" }} />
+            <span>Router Link</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-5 h-0.5 bg-emerald-500 rounded-full inline-block" />
+            <span>VM Link</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Node Inspector Panel */}
+      <div className="w-full lg:w-80 bg-zinc-900 border border-zinc-800 rounded-xl p-6 shadow-lg h-fit flex flex-col gap-4">
+        <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider border-b border-zinc-800 pb-3 flex items-center gap-2">
+          <Info className="w-4 h-4 text-zinc-500" />
+          Cloud Node Inspector
+        </h3>
+        {renderNodeDetails()}
+      </div>
+
+      {/* Vis tooltip styling override */}
       <style>{`
         .vis-tooltip {
           position: absolute;
-          padding: 10px;
-          background-color: rgba(30, 41, 59, 0.95) !important;
-          color: #f8fafc !important;
-          border: 1px solid #334155 !important;
+          padding: 10px 14px;
+          background-color: rgba(9, 9, 11, 0.95) !important;
+          color: #f4f4f5 !important;
+          border: 1px solid #3f3f46 !important;
           border-radius: 8px !important;
-          font-family: inherit !important;
-          font-size: 12px !important;
+          font-family: Inter, system-ui, sans-serif !important;
+          font-size: 11px !important;
+          line-height: 1.6 !important;
           pointer-events: none;
           z-index: 100 !important;
-          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5) !important;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6) !important;
+          max-width: 300px;
         }
       `}</style>
-
-      {/* Header Bar */}
-      <div className="flex justify-between items-center bg-slate-800 p-4 border-b border-slate-700 z-10 relative shrink-0">
-        <div>
-          <h2 className="text-xl font-bold text-white">OpenStack OVN Topology</h2>
-          <p className="text-sm text-slate-400">Real-time SDN Virtual Network Graph</p>
-        </div>
-        <button
-          onClick={onClose}
-          className="bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white px-4 py-2 rounded-xl transition"
-        >
-          Close Topology
-        </button>
-      </div>
-
-      {/* Main Graph Area */}
-      <div className="flex-1 relative w-full h-full">
-        {/* The vis-network container must perfectly hug the parent to align mouse coordinates */}
-        <div ref={containerRef} className="absolute inset-0 bg-slate-950"></div>
-
-        {/* Selected Node Details Panel (Right Side) */}
-        {selectedNode && (
-          <div className="absolute right-4 top-4 w-80 bg-slate-800/95 backdrop-blur border border-slate-700 rounded-2xl p-5 shadow-2xl z-20 max-h-[90%] overflow-y-auto">
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-lg font-bold text-white capitalize">{selectedNode.group} Details</h3>
-              <button 
-                onClick={() => setSelectedNode(null)}
-                className="text-slate-400 hover:text-white bg-slate-700/50 hover:bg-slate-700 rounded-full w-6 h-6 flex items-center justify-center transition"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="space-y-4">
-              <div className="border-b border-slate-700/50 pb-3">
-                <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Name / Label</p>
-                <p className="text-sm text-slate-200 font-semibold">{selectedNode.label}</p>
-              </div>
-              <div className="border-b border-slate-700/50 pb-3">
-                <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">ID</p>
-                <p className="text-[11px] text-slate-300 font-mono break-all bg-slate-950 p-2 rounded border border-slate-800">{selectedNode.id}</p>
-              </div>
-              {selectedNode.entityDetails && (
-                <div className="border-b border-slate-700/50 pb-3">
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-2">Metadata Properties</p>
-                  <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2 max-h-60 overflow-y-auto">
-                    {Object.entries(selectedNode.entityDetails).map(([key, value]) => {
-                      let displayVal = value;
-                      if (typeof value === "object" && value !== null) {
-                         displayVal = JSON.stringify(value);
-                      }
-                      return (
-                        <div key={key} className="text-xs flex flex-col mb-1">
-                          <span className="text-slate-500 font-semibold uppercase text-[9px] tracking-wider">{key.replace(/_/g, ' ')}</span>
-                          <span className="text-slate-200 break-words mt-0.5">
-                            {displayVal !== null && displayVal !== undefined && displayVal !== "" ? displayVal.toString() : "N/A"}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              <div>
-                <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Quick Status</p>
-                <div className="text-xs text-slate-300 bg-slate-950 p-3 rounded-lg border border-slate-800" dangerouslySetInnerHTML={{ __html: selectedNode.title }}></div>
-              </div>
-            </div>
-          </div>
-        )}
-        
-        {/* Legend Panel (Bottom Left) */}
-        <div className="absolute left-4 bottom-4 bg-slate-800/90 backdrop-blur border border-slate-700 rounded-2xl p-4 shadow-xl z-20 pointer-events-none">
-          <h4 className="text-[10px] uppercase text-slate-400 font-bold mb-3 tracking-wider">Legend</h4>
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="w-4 h-4 rounded-full bg-[#4A90E2] border border-[#2C3E50] shadow-[0_0_8px_rgba(74,144,226,0.5)]"></div>
-              <span className="text-xs font-medium text-slate-200">Router</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="w-4 h-4 rounded-full bg-[#50E3C2] border border-[#0B3954] shadow-[0_0_8px_rgba(80,227,194,0.5)]"></div>
-              <span className="text-xs font-medium text-slate-200">Network / Logical Switch</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="w-4 h-4 bg-[#F5A623] border border-[#8B572A] shadow-[0_0_8px_rgba(245,166,35,0.5)]"></div>
-              <span className="text-xs font-medium text-slate-200">Virtual Machine</span>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

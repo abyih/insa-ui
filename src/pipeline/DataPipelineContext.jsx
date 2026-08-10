@@ -49,9 +49,18 @@ export function DataPipelineProvider({ children }) {
   // ── Core fetch: nodes + flowStats ────────────────────────────────────────
   const fetchCoreData = useCallback(async () => {
     try {
-      const raw = await getNodes();
-      dispatchNodes({ type: "SUCCESS", payload: mapNodes(raw) });
-      dispatchFlows({ type: "SUCCESS", payload: mapFlowStats(raw) });
+      const [rawInventory, rawTopology] = await Promise.all([
+        getNodes().catch((err) => {
+          console.warn("[Pipeline] Inventory nodes fetch failed:", err?.message);
+          return null;
+        }),
+        NetworkTopologySvc.getNode("all").catch((err) => {
+          console.warn("[Pipeline] Topology fetch for nodes failed:", err?.message);
+          return null;
+        }),
+      ]);
+      dispatchNodes({ type: "SUCCESS", payload: mapNodes(rawInventory, rawTopology) });
+      dispatchFlows({ type: "SUCCESS", payload: mapFlowStats(rawInventory) });
     } catch (err) {
       const msg = err.message;
       dispatchNodes({ type: "ERROR", payload: msg });
@@ -108,6 +117,42 @@ export function DataPipelineProvider({ children }) {
       dispatchDetail({ type: "SUCCESS", key: nodeId, payload: data });
       return data;
     } catch (err) {
+      // Fallback for OVSDB / DevStack nodes not present in opendaylight-inventory
+      try {
+        const topo = await NetworkTopologySvc.getNode("all");
+        const found = (topo?.nodes || []).find(
+          (n) => n.id === nodeId || n.id?.includes(nodeId) || n.nodeDetails?.vmUuid === nodeId
+        );
+        if (found) {
+          const details = found.nodeDetails || {};
+          const tps = details.tps || (details.tapPort ? [{ tpId: details.tapPort, mac: details.mac }] : []);
+          const fallbackData = {
+            "opendaylight-inventory:node": [
+              {
+                id: found.id,
+                "flow-node-inventory:ip-address": details.ip || details.connectionInfo?.["remote-ip"] || "N/A",
+                "flow-node-inventory:hardware": details.type || found.group || "DevStack OVSDB Device",
+                "flow-node-inventory:description": found.label || found.id,
+                "flow-node-inventory:manufacturer": "Open vSwitch / DevStack",
+                "flow-node-inventory:serial-number": details.bridgeUuid || details.vmUuid || "N/A",
+                "flow-node-inventory:software": details.ovsVersion ? `OVS ${details.ovsVersion}` : "DevStack",
+                "node-connector": tps.map((tp) => ({
+                  id: tp.tpId || found.id,
+                  "flow-node-inventory:name": tp.tpId || found.label,
+                  "flow-node-inventory:hardware-address": tp.mac || details.mac || "N/A",
+                  "flow-node-inventory:state": { live: true },
+                })),
+                "flow-node-inventory:table": [],
+              },
+            ],
+          };
+          cache.set(KEY, fallbackData, TTL.nodeDetail);
+          dispatchDetail({ type: "SUCCESS", key: nodeId, payload: fallbackData });
+          return fallbackData;
+        }
+      } catch (topoErr) {
+        console.error("[Pipeline] Fallback error for node detail:", topoErr);
+      }
       dispatchDetail({ type: "ERROR", key: nodeId, payload: err.message });
     }
   }, []);

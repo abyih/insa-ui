@@ -223,12 +223,43 @@ export const extractOvsdbData = (topology) => {
 					}
 				});
 
-				const vmUuid = extIfaceIds["vm-uuid"];
-				const attachedMac = extIfaceIds["attached-mac"] || tp["ovsdb:mac-in-use"] || "N/A";
-				const ifaceId = extIfaceIds["iface-id"] || "N/A";
-				const ifaceStatus = extIfaceIds["iface-status"] || "active";
+				const vmUuid =
+					extIfaceIds["vm-uuid"] ||
+					extIfaceIds["vm_uuid"] ||
+					extIfaceIds["instance_id"] ||
+					extIfaceIds["nova_instance_id"];
+				const attachedMac =
+					extIfaceIds["attached-mac"] ||
+					extIfaceIds["attached_mac"] ||
+					tp["ovsdb:mac-in-use"] ||
+					"N/A";
+				const ifaceId =
+					extIfaceIds["iface-id"] ||
+					extIfaceIds["iface_id"] ||
+					extIfaceIds["port_id"] ||
+					"N/A";
+				const ifaceStatus =
+					extIfaceIds["iface-status"] ||
+					extIfaceIds["iface_status"] ||
+					"active";
 
-				if (vmUuid || tpId.startsWith("tap")) {
+				// Strict VM detection: only count ports that are definitively
+				// attached to a Nova compute instance via their OVSDB external-ids.
+				// Exclude infrastructure ports: router (qr-/qg-), HA (ha-),
+				// Linux bridge veth pairs (qvo/qvb), DHCP agent, and metadata ports.
+				const isInfraPort =
+					tpId.startsWith("qvo") ||
+					tpId.startsWith("qvb") ||
+					tpId.startsWith("qr-") ||
+					tpId.startsWith("qg-") ||
+					tpId.startsWith("ha-") ||
+					tpId.startsWith("patch") ||
+					tpId === bridgeName;
+
+				const isVmPort =
+					!isInfraPort && Boolean(vmUuid);
+
+				if (isVmPort && !tpId.startsWith("patch") && tpId !== bridgeName) {
 					const vmId = vmUuid ? `vm-${vmUuid}` : `vm-${tpId}`;
 					const vmShortId = vmUuid ? vmUuid.slice(0, 8) : tpId;
 

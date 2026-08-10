@@ -1,4 +1,5 @@
 import axios from "axios";
+import NetworkTopologySvc from "../Pages/Topology/TopologyService";
 
 const authHeader = () => ({
   Authorization: "Basic " + btoa("admin:admin"),
@@ -37,8 +38,46 @@ const formatUrl = (path) => `/api/rests/data/${path}`;
 export async function getInventoryNodes() {
   const url = "opendaylight-inventory:nodes?content=nonconfig";
   try {
-    const { data } = await flowManagerApi.get(url);
-    return data?.["opendaylight-inventory:nodes"]?.node || [];
+    const [invRes, topoRes] = await Promise.all([
+      flowManagerApi.get(url).catch(() => null),
+      NetworkTopologySvc.getNode("all").catch(() => null),
+    ]);
+
+    const inventoryNodes = invRes?.data?.["opendaylight-inventory:nodes"]?.node || [];
+    const topoNodes = topoRes?.nodes || [];
+
+    const nodesList = [];
+    const seenIds = new Set();
+
+    // 1. Process OpenFlow inventory nodes
+    inventoryNodes.forEach((node) => {
+      const id = node.id || node["id"];
+      if (id) {
+        seenIds.add(id);
+        const type = id.startsWith("host:") ? "Host" : "OpenFlow Switch";
+        nodesList.push({ id, type });
+      }
+    });
+
+    // 2. Process DevStack OVSDB / Topology nodes
+    topoNodes.forEach((tn) => {
+      if (!tn || !tn.id || seenIds.has(tn.id)) return;
+      seenIds.add(tn.id);
+      const type =
+        tn.nodeDetails?.type ||
+        (tn.group === "ovs-host"
+          ? "OVS Host"
+          : tn.group === "vm"
+          ? "Virtual Machine"
+          : tn.group === "bridge-int"
+          ? "Integration Bridge"
+          : tn.group === "bridge-ex"
+          ? "External Bridge"
+          : "Switch");
+      nodesList.push({ id: tn.id, type });
+    });
+
+    return nodesList;
   } catch (error) {
     throw new Error(getErrorBody(error));
   }
@@ -49,12 +88,14 @@ export async function getNodeTables(nodeId) {
   try {
     const { data } = await flowManagerApi.get(url);
     const node = data?.["opendaylight-inventory:node"]?.[0] || {};
-    return node["flow-node-inventory:table"] || [];
+    const tables = node["flow-node-inventory:table"] || [];
+    if (tables.length > 0) return tables;
+    return [{ id: 0 }];
   } catch (error) {
     if (error?.response?.status === 404 || error?.response?.status === 409) {
-      return [];
+      return [{ id: 0 }];
     }
-    throw new Error(getErrorBody(error));
+    return [{ id: 0 }];
   }
 }
 
@@ -63,13 +104,13 @@ export async function getFlows(nodeId, tableId) {
   try {
     const { data } = await flowManagerApi.get(url);
     const tableList = data?.["flow-node-inventory:table"] || [];
-    const table = tableList.find(t => String(t.id) === String(tableId)) || tableList[0] || {};
+    const table = tableList.find((t) => String(t.id) === String(tableId)) || tableList[0] || {};
     return table.flow || [];
   } catch (error) {
     if (error?.response?.status === 404 || error?.response?.status === 409) {
       return [];
     }
-    throw new Error(getErrorBody(error));
+    return [];
   }
 }
 

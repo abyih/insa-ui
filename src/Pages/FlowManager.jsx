@@ -365,13 +365,18 @@ function FlowManager() {
           <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, fontWeight: 600, color: "#94a3b8" }}>
             Active Switch
             <select
-              style={{ ...S.input, width: 220 }}
+              style={{ ...S.input, width: 320 }}
               value={selectedNode}
               onChange={(event) => setSelectedNode(event.target.value)}
             >
               {nodes.map((node) => {
                 const nodeId = node.id || node["id"];
-                return <option key={nodeId} value={nodeId}>{nodeId}</option>;
+                const label = node.type ? `${nodeId} (${node.type})` : nodeId;
+                return (
+                  <option key={nodeId} value={nodeId}>
+                    {label}
+                  </option>
+                );
               })}
             </select>
           </label>

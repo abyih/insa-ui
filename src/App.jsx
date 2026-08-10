@@ -47,8 +47,50 @@ function TopologyRoute() {
     setLoading(true);
     setError(null);
     import("./Pages/Topology/TopologyService").then(({ default: svc }) => {
-      svc.getNode(targetFilter)
-        .then((data) => { setTopo(data); setLoading(false); })
+      // Fetch both topology data and OpenStack cloud-summary in parallel
+      Promise.all([
+        svc.getNode(targetFilter),
+        fetch("/api/openstack/cloud-summary")
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+      ])
+        .then(([topoData, cloudData]) => {
+          // Cross-reference: only keep VMs that belong to the user's OpenStack project
+          if (cloudData && cloudData.virtualMachines && topoData?.nodes) {
+            const myVmIds = new Set(
+              cloudData.virtualMachines.map((vm) => vm.id)
+            );
+
+            // Identify topology VM node IDs that do NOT belong to the user
+            const foreignVmNodeIds = new Set();
+            topoData.nodes.forEach((n) => {
+              if (n.group === "vm" && n.nodeDetails?.vmUuid) {
+                // VM node IDs are formatted as "vm-<uuid>"
+                if (!myVmIds.has(n.nodeDetails.vmUuid)) {
+                  foreignVmNodeIds.add(n.id);
+                }
+              }
+            });
+
+            if (foreignVmNodeIds.size > 0) {
+              // Filter out foreign VMs and their links
+              topoData.nodes = topoData.nodes.filter(
+                (n) => !foreignVmNodeIds.has(n.id)
+              );
+              topoData.links = topoData.links.filter(
+                (l) =>
+                  !foreignVmNodeIds.has(l.from) &&
+                  !foreignVmNodeIds.has(l.to)
+              );
+              console.log(
+                `Topology: filtered out ${foreignVmNodeIds.size} VM(s) from other OpenStack projects`
+              );
+            }
+          }
+
+          setTopo(topoData);
+          setLoading(false);
+        })
         .catch((err) => { setError(err.message); setLoading(false); });
     });
   };

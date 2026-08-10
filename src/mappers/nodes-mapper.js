@@ -50,31 +50,98 @@ export const mapNodeConnectors = (connectors = []) => {
 	});
 };
 
-export const mapNodes = (rawData) => {
-	const nodes = rawData["opendaylight-inventory:nodes"]?.node || [];
+export const mapNodes = (rawData, topologyData) => {
+	const inventoryNodes = rawData?.["opendaylight-inventory:nodes"]?.node || [];
+	const mappedNodes = [];
+	const seenIds = new Set();
 
-	return nodes.map((node) => {
+	// 1. Map OpenFlow inventory nodes
+	inventoryNodes.forEach((node) => {
 		const connectors = mapNodeConnectors(node["node-connector"] || []);
 
-		// Determine overall node status (based on its connectors)
 		let status = "unknown";
-		const allDown = connectors.every((c) => c.state.linkDown);
-		const anyLive = connectors.some(
-			(c) => c.state.live && !c.state.blocked
-		);
+		const allDown = connectors.length > 0 && connectors.every((c) => c.state.linkDown);
+		const anyLive = connectors.some((c) => c.state.live && !c.state.blocked);
 		const anyBlocked = connectors.some((c) => c.state.blocked);
 
 		if (allDown) status = "down";
 		else if (anyLive) status = "up";
 		else if (anyBlocked) status = "blocked";
- 
+		else status = "up";
+
 		const id = node.id;
-		const type = id.startsWith("host:") ? "Host" : "Switch";
-		return {
-			id: node.id,
+		const type = id.startsWith("host:") ? "Host" : "OpenFlow Switch";
+		seenIds.add(id);
+
+		mappedNodes.push({
+			id,
 			type,
 			connectors,
 			status,
-		};
+		});
 	});
+
+	// 2. Map DevStack / OVSDB / Network Topology nodes
+	const topoNodes = topologyData?.nodes || [];
+	topoNodes.forEach((tn) => {
+		if (!tn || !tn.id || seenIds.has(tn.id)) return;
+		seenIds.add(tn.id);
+
+		const nodeDetails = tn.nodeDetails || {};
+		const type =
+			nodeDetails.type ||
+			(tn.group === "ovs-host"
+				? "OVS Host"
+				: tn.group === "vm"
+				? "Virtual Machine"
+				: tn.group === "bridge-int"
+				? "Integration Bridge"
+				: tn.group === "bridge-ex"
+				? "External Bridge"
+				: tn.group === "host"
+				? "Host"
+				: "Switch");
+
+		let status = "up";
+		if (type === "Virtual Machine" && nodeDetails.ifaceStatus) {
+			status = nodeDetails.ifaceStatus.toLowerCase() === "active" ? "up" : "down";
+		}
+
+		let connectors = [];
+		if (nodeDetails.tps && Array.isArray(nodeDetails.tps)) {
+			connectors = nodeDetails.tps.map((tp) => ({
+				id: tp.tpId,
+				name: tp.tpId + (tp.ifaceType ? ` (${tp.ifaceType})` : ""),
+				mac: tp.mac || "N/A",
+				state: { live: true },
+			}));
+		} else if (nodeDetails.tapPort) {
+			connectors = [
+				{
+					id: nodeDetails.tapPort,
+					name: `${nodeDetails.tapPort} (MAC: ${nodeDetails.mac || "N/A"})`,
+					mac: nodeDetails.mac || "N/A",
+					state: { live: status === "up" },
+				},
+			];
+		} else if (tn.id) {
+			connectors = [
+				{
+					id: tn.id,
+					name: tn.label || tn.id,
+					state: { live: true },
+				},
+			];
+		}
+
+		mappedNodes.push({
+			id: tn.id,
+			type,
+			connectors,
+			status,
+			nodeDetails,
+		});
+	});
+
+	return mappedNodes;
 };

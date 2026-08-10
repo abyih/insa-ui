@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import CloudTopology from "../Components/CloudTopology";
+import { cache } from "../pipeline/cache";
 
 // Using relative paths for API requests (requires proxy setup)
 
@@ -34,9 +35,11 @@ export default function Cloud() {
   const [creatingVm, setCreatingVm] = useState(false);
   const [creatingNetwork, setCreatingNetwork] = useState(false);
   const [launchingInstance, setLaunchingInstance] = useState(false);
-  const [vmForm, setVmForm] = useState({ name: "", flavor: "m1.small", image: "cirros-0.6.3-x86_64-disk", network: "" });
+  const [availableFlavors, setAvailableFlavors] = useState([]);
+  const [availableImages, setAvailableImages] = useState([]);
+  const [vmForm, setVmForm] = useState({ name: "", flavor: "", image: "", network: "" });
   const [networkForm, setNetworkForm] = useState({ name: "", cidr: "192.168.1.0/24", segmentation: "VXLAN-1000" });
-  const [launchForm, setLaunchForm] = useState({ name: "", flavor: "m1.small", image: "cirros-0.6.3-x86_64-disk", network: "" });
+  const [launchForm, setLaunchForm] = useState({ name: "", flavor: "", image: "", network: "" });
 
   // Add infrastructure status state
   const [infrastructureStatus, setInfrastructureStatus] = useState({
@@ -105,6 +108,8 @@ export default function Cloud() {
       setFlows(payload.flows || []);
       setSecurityRules(payload.securityRules || []);
       setSelectedVmId(payload.virtualMachines?.[0]?.id || null);
+      setAvailableFlavors(payload.availableFlavors || []);
+      setAvailableImages(payload.availableImages || []);
       
       // Set infrastructure status from backend
       if (payload.infrastructureStatus) {
@@ -225,6 +230,7 @@ export default function Cloud() {
       }
 
       const data = await response.json();
+      cache.invalidateAll();
       alert(`VM "${vmForm.name}" created successfully!`);
       setShowVmModal(false);
       setVmForm({ name: "", flavor: "m1.small", image: "cirros-0.6.3-x86_64-disk", network: "" });
@@ -824,9 +830,12 @@ export default function Cloud() {
                     onChange={(e) => updateVmField("flavor", e.target.value)}
                     className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                   >
-                    <option value="m1.small">m1.small (1 vCPU, 2GB RAM)</option>
-                    <option value="m1.medium">m1.medium (2 vCPU, 4GB RAM)</option>
-                    <option value="m1.large">m1.large (4 vCPU, 8GB RAM)</option>
+                    <option value="">Default / First Available Flavor</option>
+                    {availableFlavors.map((f) => (
+                      <option key={f.id} value={f.name || f.id}>
+                        {f.name} ({f.vcpus || 1} vCPU, {f.ram || 512}MB RAM)
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -836,9 +845,12 @@ export default function Cloud() {
                     onChange={(e) => updateVmField("image", e.target.value)}
                     className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                   >
-                    <option value="cirros-0.6.3-x86_64-disk">Cirros 0.6.3</option>
-                    <option value="centos-8">CentOS 8</option>
-                    <option value="cirros">Cirros (test image)</option>
+                    <option value="">Default / First Active Image</option>
+                    {availableImages.map((img) => (
+                      <option key={img.id} value={img.name || img.id}>
+                        {img.name || img.id}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -848,10 +860,10 @@ export default function Cloud() {
                     onChange={(e) => updateVmField("network", e.target.value)}
                     className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                   >
-                    <option value="">Select network...</option>
+                    <option value="">Auto-select Private Network</option>
                     {networks.map((network) => (
-                      <option key={network.name} value={network.name}>
-                        {network.name}
+                      <option key={network.id || network.name} value={network.name || network.id}>
+                        {network.name} {network.cidr ? `(${network.cidr})` : ""}
                       </option>
                     ))}
                   </select>
@@ -951,9 +963,12 @@ export default function Cloud() {
                     onChange={(e) => updateLaunchField("flavor", e.target.value)}
                     className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                   >
-                    <option value="m1.small">m1.small (1 vCPU, 2GB RAM)</option>
-                    <option value="m1.medium">m1.medium (2 vCPU, 4GB RAM)</option>
-                    <option value="m1.large">m1.large (4 vCPU, 8GB RAM)</option>
+                    <option value="">Default / First Available Flavor</option>
+                    {availableFlavors.map((f) => (
+                      <option key={f.id} value={f.name || f.id}>
+                        {f.name} ({f.vcpus || 1} vCPU, {f.ram || 512}MB RAM)
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -963,9 +978,12 @@ export default function Cloud() {
                     onChange={(e) => updateLaunchField("image", e.target.value)}
                     className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                   >
-                    <option value="cirros-0.6.3-x86_64-disk">Cirros 0.6.3</option>
-                    <option value="centos-8">CentOS 8</option>
-                    <option value="cirros">Cirros (test image)</option>
+                    <option value="">Default / First Active Image</option>
+                    {availableImages.map((img) => (
+                      <option key={img.id} value={img.name || img.id}>
+                        {img.name || img.id}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -975,10 +993,10 @@ export default function Cloud() {
                     onChange={(e) => updateLaunchField("network", e.target.value)}
                     className="w-full rounded-2xl border border-zinc-700 bg-zinc-950 p-3 outline-none focus:border-blue-500"
                   >
-                    <option value="">Select network...</option>
+                    <option value="">Auto-select Private Network</option>
                     {networks.map((network) => (
-                      <option key={network.name} value={network.name}>
-                        {network.name}
+                      <option key={network.id || network.name} value={network.name || network.id}>
+                        {network.name} {network.cidr ? `(${network.cidr})` : ""}
                       </option>
                     ))}
                   </select>
