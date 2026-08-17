@@ -7,8 +7,7 @@ import { RefreshCw, Layout, Info, Server, Cpu, Network as NetIcon, Monitor, Shie
 
 const TopologySimple = ({
 	topologyData,
-	currentFilter = "all",
-	onFilterChange,
+	title = "Logical Network Topology",
 	onReload,
 	crossCheckOpenstack = true,
 	onToggleCrossCheck,
@@ -490,7 +489,7 @@ const TopologySimple = ({
 				<div className="flex flex-wrap justify-between items-center gap-3">
 					<h3 className="text-base font-bold text-zinc-200 flex items-center gap-2">
 						<Layout className="w-5 h-5 text-indigo-400" />
-						Logical Network Topology
+						{title}
 					</h3>
 
 					<div className="flex items-center gap-2.5 flex-wrap">
@@ -523,21 +522,7 @@ const TopologySimple = ({
 							</button>
 						)}
 
-						{/* Topology Dropdown Selector */}
-						{onFilterChange && (
-							<div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs">
-								<span className="text-zinc-500 font-semibold">View:</span>
-								<select
-									value={currentFilter}
-									onChange={(e) => onFilterChange(e.target.value)}
-									className="bg-transparent text-zinc-200 font-semibold focus:outline-none cursor-pointer"
-								>
-									<option value="all" className="bg-zinc-900 text-zinc-200">Merged (All Topologies)</option>
-									<option value="ovsdb:1" className="bg-zinc-900 text-zinc-200">DevStack OVSDB (ovsdb:1)</option>
-									<option value="flow:1" className="bg-zinc-900 text-zinc-200">OpenFlow (flow:1)</option>
-								</select>
-							</div>
-						)}
+
 
 						<button
 							onClick={onReload}

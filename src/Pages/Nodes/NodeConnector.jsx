@@ -35,7 +35,7 @@ const NodeConnector = () => {
 
   const node = raw ? mapNodeDetails(raw) : null;
 
-  if (loading) return (
+  if (loading && !raw) return (
     <div className="p-8 min-h-[60vh] flex items-center justify-center">
       <div className="text-center">
         <RefreshCw className="animate-spin h-8 w-8 text-zinc-500 mx-auto mb-3" />

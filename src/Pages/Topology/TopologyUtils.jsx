@@ -463,8 +463,8 @@ export const extractDeviceData = (topology) => {
 			const dstPort = linkData.destination[TOPOLOGY_CONST.DEST_TP];
 
 			if (
-				!linksMap[`${srcId}:${dstId}`] &&
-				!linksMap[`${dstId}:${srcId}`]
+				!linksMap[`${srcId}||${dstId}`] &&
+				!linksMap[`${dstId}||${srcId}`]
 			) {
 				links.push({
 					from: srcId,
@@ -473,12 +473,46 @@ export const extractDeviceData = (topology) => {
 					dstPort: dstPort,
 					title: `Source Port: <b>${srcPort}</b><br>Dest Port: <b>${dstPort}</b>`,
 				});
-				linksMap[`${srcId}:${dstId}`] = true;
+				linksMap[`${srcId}||${dstId}`] = true;
 			}
 		});
 	}
 
-	return { nodes, links };
+	// Post-process: ensure every link references existing nodes.
+	// If a link references a node that doesn't exist, try to create a stub
+	// host node for it (common for host:xx:xx:xx nodes referenced only in links).
+	const nodeIdSet = new Set(nodes.map((n) => n.id));
+
+	topologyLinks.forEach((linkData) => {
+		const srcId = linkData.source[TOPOLOGY_CONST.SOURCE_NODE];
+		const dstId = linkData.destination[TOPOLOGY_CONST.DEST_NODE];
+
+		[srcId, dstId].forEach((id) => {
+			if (id && !nodeIdSet.has(id)) {
+				// Create a stub node so the link has something to connect to
+				const isHost = id.includes("host");
+				nodes.push({
+					id,
+					label: isHost ? id.replace("host:", "Host: ") : id,
+					group: isHost ? "host" : "switch",
+					value: 20,
+					title: `ID: <b>${id}</b><br>Type: ${isHost ? "Host" : "Switch"} (auto-discovered from link)`,
+					nodeDetails: {
+						type: isHost ? "Host" : "OpenFlow Switch",
+						nodeId: id,
+					},
+				});
+				nodeIdSet.add(id);
+			}
+		});
+	});
+
+	// Final safety: filter out any links whose endpoints still don't exist
+	const validLinks = links.filter(
+		(l) => nodeIdSet.has(l.from) && nodeIdSet.has(l.to)
+	);
+
+	return { nodes, links: validLinks };
 };
 
 export const generatePortDots = (topologyLinks, inventoryNodes) => {

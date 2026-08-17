@@ -19,7 +19,7 @@ const port = 5000;
 // DevStack credentials — defaults to localhost (127.0.0.1) for same-machine deployments
 // When running on Windows with DevStack in WSL, auto-detection below will correct this.
 let KEYSTONE_URL =
-  process.env.KEYSTONE_URL || "http://127.0.0.1/identity/v3";
+  process.env.KEYSTONE_URL || "http://192.168.122.156/identity/v3";
 let NEUTRON_URL = process.env.NEUTRON_URL;
 let NOVA_URL = process.env.NOVA_URL;
 let GLANCE_URL = process.env.GLANCE_URL;

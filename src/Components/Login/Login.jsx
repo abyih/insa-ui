@@ -17,6 +17,7 @@ function Login() {
     e.preventDefault();
     if (username === CREDENTIALS.username && password === CREDENTIALS.password) {
       localStorage.setItem("isAuthenticated", "true");
+      window.dispatchEvent(new Event("auth-changed"));
       navigate("/dashboard");
     } else {
       setError("Incorrect username or password. Please try again.");

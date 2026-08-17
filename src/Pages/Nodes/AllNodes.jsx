@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useNodes } from "../../pipeline/DataPipelineContext";
-import { Search, Server, Layers, ShieldCheck, RefreshCw } from "lucide-react";
+import { Search, Server, Layers, ShieldCheck, RefreshCw, Cpu, Network as NetIcon } from "lucide-react";
 
 const statusColor = {
   up:      "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
@@ -9,6 +9,14 @@ const statusColor = {
   blocked: "bg-amber-500/10 text-amber-400 border border-amber-500/20",
   unknown: "bg-zinc-800/40 text-zinc-400 border border-zinc-700/50",
 };
+
+const OPENFLOW_TYPES = new Set(["OpenFlow Switch", "Host", "Switch"]);
+const DEVSTACK_TYPES = new Set(["OVS Host", "Integration Bridge", "External Bridge", "Virtual Machine"]);
+
+const CATEGORIES = [
+  { id: "openflow", label: "OpenFlow", icon: <Cpu className="w-4 h-4" />, matchFn: (n) => OPENFLOW_TYPES.has(n.type) || n.id?.startsWith("openflow:") || n.id?.startsWith("host:") },
+  { id: "devstack", label: "DevStack", icon: <NetIcon className="w-4 h-4" />, matchFn: (n) => DEVSTACK_TYPES.has(n.type) || n.id?.includes("ovsdb") || n.id?.startsWith("vm-") },
+];
 
 const NodeItem = ({ node, onClick }) => (
   <tr onClick={onClick} className="hover:bg-zinc-800/25 cursor-pointer border-t border-zinc-850 text-sm transition-colors duration-150">
@@ -41,13 +49,24 @@ export default function AllNodes() {
   const { data: nodes = [], loading, error } = useNodes();
   const [search,  setSearch]  = useState("");
   const [showAll, setShowAll] = useState(false);
+  const [category, setCategory] = useState("openflow");
   const VISIBLE = 10;
   const navigate = useNavigate();
 
+  const activeCategory = CATEGORIES.find((c) => c.id === category);
+
   const filtered = Array.isArray(nodes)
-    ? nodes.filter((n) => n.id?.toLowerCase().includes(search.toLowerCase()))
+    ? nodes
+        .filter((n) => activeCategory?.matchFn(n))
+        .filter((n) => n.id?.toLowerCase().includes(search.toLowerCase()))
     : [];
   const visible = showAll ? filtered : filtered.slice(0, VISIBLE);
+
+  // Count nodes per category for badge
+  const categoryCounts = {};
+  CATEGORIES.forEach((cat) => {
+    categoryCounts[cat.id] = Array.isArray(nodes) ? nodes.filter((n) => cat.matchFn(n)).length : 0;
+  });
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -63,6 +82,31 @@ export default function AllNodes() {
           <span>⚠️ {error}</span>
         </div>
       )}
+
+      {/* Category Tabs */}
+      <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1.5 w-fit">
+        {CATEGORIES.map((cat) => (
+          <button
+            key={cat.id}
+            onClick={() => { setCategory(cat.id); setShowAll(false); }}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 cursor-pointer ${
+              category === cat.id
+                ? "bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40 border border-transparent"
+            }`}
+          >
+            {cat.icon}
+            <span>{cat.label}</span>
+            <span className={`ml-1 px-1.5 py-0.5 text-[10px] font-bold rounded-md ${
+              category === cat.id
+                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                : "bg-zinc-800 text-zinc-500"
+            }`}>
+              {categoryCounts[cat.id]}
+            </span>
+          </button>
+        ))}
+      </div>
 
       {/* Control bar */}
       <div className="relative max-w-md w-full">
@@ -99,7 +143,7 @@ export default function AllNodes() {
               ) : visible.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="text-center py-16 text-zinc-500 font-medium">
-                    No devices or nodes found matching query
+                    No {activeCategory?.label} devices found{search ? " matching query" : ""}
                   </td>
                 </tr>
               ) : (
@@ -125,3 +169,4 @@ export default function AllNodes() {
     </div>
   );
 }
+

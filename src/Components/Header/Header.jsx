@@ -128,7 +128,7 @@ function Header() {
             <div className="h-4 w-px bg-zinc-850"></div>
             <Link
               to="/"
-              onClick={() => localStorage.removeItem("isAuthenticated")}
+              onClick={() => { localStorage.removeItem("isAuthenticated"); window.dispatchEvent(new Event("auth-changed")); }}
               className="flex items-center gap-1.5 py-1.5 px-3 border border-zinc-850 hover:bg-red-950/20 hover:border-red-900/40 hover:text-red-400 text-zinc-400 rounded-lg text-xs font-semibold transition-all duration-200"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -175,6 +175,7 @@ function Header() {
               to="/"
               onClick={() => {
                 localStorage.removeItem("isAuthenticated");
+                window.dispatchEvent(new Event("auth-changed"));
                 setMenuOpen(false);
               }}
               className="flex items-center justify-center gap-2 py-3 px-4 mt-1 border border-zinc-850 hover:bg-red-950/20 hover:border-red-900/40 hover:text-red-400 text-zinc-400 rounded-xl text-sm font-semibold transition-all"

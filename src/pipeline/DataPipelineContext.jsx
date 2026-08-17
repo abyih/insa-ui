@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useEffect, useCallback } from "react";
+import { createContext, useContext, useReducer, useEffect, useCallback, useState, useMemo } from "react";
 import { cache } from "./cache";
 import { getNodes, getNodeConnectors, getConnectionStats } from "../api/api-controller";
 import { mapNodes } from "../mappers/nodes-mapper";
@@ -28,9 +28,9 @@ function reducer(state, action) {
 
 function detailReducer(state, action) {
   switch (action.type) {
-    case "LOADING": return { ...state, [action.key]: { data: null, loading: true,  error: null } };
+    case "LOADING": return { ...state, [action.key]: { ...state[action.key], loading: true,  error: null } };
     case "SUCCESS": return { ...state, [action.key]: { data: action.payload, loading: false, error: null } };
-    case "ERROR":   return { ...state, [action.key]: { data: null, loading: false, error: action.payload } };
+    case "ERROR":   return { ...state, [action.key]: { ...state[action.key], loading: false, error: action.payload } };
     default:        return state;
   }
 }
@@ -110,7 +110,10 @@ export function DataPipelineProvider({ children }) {
       const hit = cache.get(KEY);
       if (hit) { dispatchDetail({ type: "SUCCESS", key: nodeId, payload: hit }); return hit; }
     }
-    dispatchDetail({ type: "LOADING", key: nodeId });
+    // Only show loading state on initial fetch, not background refreshes
+    if (!force) {
+      dispatchDetail({ type: "LOADING", key: nodeId });
+    }
     try {
       const data = await getNodeConnectors(nodeId);
       cache.set(KEY, data, TTL.nodeDetail);
@@ -157,9 +160,28 @@ export function DataPipelineProvider({ children }) {
     }
   }, []);
 
+  // ── Track authentication state reactively ─────────────────────────────────
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    () => !!localStorage.getItem("isAuthenticated")
+  );
+
+  useEffect(() => {
+    // Listen for same-tab auth changes (custom event fired by Login)
+    const onAuthChanged = () => {
+      setIsAuthenticated(!!localStorage.getItem("isAuthenticated"));
+    };
+    window.addEventListener("auth-changed", onAuthChanged);
+    // Listen for cross-tab auth changes
+    window.addEventListener("storage", onAuthChanged);
+    return () => {
+      window.removeEventListener("auth-changed", onAuthChanged);
+      window.removeEventListener("storage", onAuthChanged);
+    };
+  }, []);
+
   // ── Auto-poll every 15s after login ───────────────────────────────────────
   useEffect(() => {
-    if (!localStorage.getItem("isAuthenticated")) return;
+    if (!isAuthenticated) return;
 
     dispatchNodes({ type: "LOADING" });
     dispatchFlows({ type: "LOADING" });
@@ -175,9 +197,9 @@ export function DataPipelineProvider({ children }) {
       clearInterval(coreTimer);
       clearInterval(statsTimer);
     };
-  }, [fetchCoreData, fetchStats]);
+  }, [isAuthenticated, fetchCoreData, fetchStats]);
 
-  const value = {
+  const value = useMemo(() => ({
     nodes:     { ...nodesState,    fetch: fetchCoreData },
     flowStats: { ...flowsState,    fetch: fetchCoreData },
     topology:  { ...topologyState, fetch: fetchTopology },
@@ -187,7 +209,7 @@ export function DataPipelineProvider({ children }) {
       fetch: fetchNodeDetail,
     },
     invalidateAll: () => cache.invalidateAll(),
-  };
+  }), [nodesState, flowsState, topologyState, statsState, detailMap, fetchCoreData, fetchTopology, fetchStats, fetchNodeDetail]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -208,5 +230,8 @@ export function useTopology(topoId = "flow:1") {
 }
 export function useNodeDetail(nodeId) {
   const { nodeDetail } = usePipeline();
-  return { ...nodeDetail.getSlice(nodeId), fetch: (force) => nodeDetail.fetch(nodeId, force) };
+  const slice = nodeDetail.getSlice(nodeId);
+  // Stable fetch reference so the consumer's useEffect doesn't re-run every render
+  const fetchRef = useCallback((force) => nodeDetail.fetch(nodeId, force), [nodeDetail.fetch, nodeId]);
+  return useMemo(() => ({ ...slice, fetch: fetchRef }), [slice, fetchRef]);
 }

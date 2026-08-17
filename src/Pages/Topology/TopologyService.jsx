@@ -87,8 +87,8 @@ const NetworkTopologySvc = {
 				return topoId === targetTopology;
 			});
 
-			// If specific filter resulted in empty, fallback to available topologies
-			const toProcess = targetTopos.length > 0 ? targetTopos : topologies;
+			// If specific filter yielded no matching topologies, return empty
+			const toProcess = targetTopos;
 
 			toProcess.forEach((topology) => {
 				const topoId = topology?.["topology-id"] || "";
@@ -108,10 +108,10 @@ const NetworkTopologySvc = {
 					}
 				});
 
-				// Deduplicate links
+				// Deduplicate links (use || separator to avoid collision with node IDs containing colons)
 				result.links.forEach((l) => {
-					const key1 = `${l.from}:${l.to}`;
-					const key2 = `${l.to}:${l.from}`;
+					const key1 = `${l.from}||${l.to}`;
+					const key2 = `${l.to}||${l.from}`;
 					if (!addedLinkKeys.has(key1) && !addedLinkKeys.has(key2)) {
 						addedLinkKeys.add(key1);
 						addedLinkKeys.add(key2);
