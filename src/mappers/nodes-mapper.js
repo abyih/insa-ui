@@ -70,7 +70,22 @@ export const mapNodes = (rawData, topologyData) => {
 		else status = "up";
 
 		const id = node.id;
-		const type = id.startsWith("host:") ? "Host" : "OpenFlow Switch";
+		const isDevstackBridge =
+			id.includes("ovsdb") ||
+			connectors.some(
+				(c) =>
+					c.name?.startsWith("tap") ||
+					c.name?.startsWith("patch") ||
+					c.name === "br-int" ||
+					c.name === "br-ex"
+			) ||
+			(id.startsWith("openflow:") && Number(id.replace("openflow:", "")) > 100000);
+
+		const type = isDevstackBridge
+			? "Integration Bridge"
+			: id.startsWith("host:")
+			? "Host"
+			: "OpenFlow Switch";
 		seenIds.add(id);
 
 		mappedNodes.push({

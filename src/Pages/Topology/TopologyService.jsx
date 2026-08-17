@@ -97,7 +97,7 @@ const NetworkTopologySvc = {
 				if (topoId === "ovsdb:1" || topology?.node?.some((n) => n["node-id"]?.includes("ovsdb"))) {
 					result = extractOvsdbData(topology);
 				} else {
-					result = extractDeviceData(topology);
+					result = extractDeviceData(topology, inventory);
 				}
 
 				// Deduplicate nodes

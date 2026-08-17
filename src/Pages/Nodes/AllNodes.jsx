@@ -13,9 +13,27 @@ const statusColor = {
 const OPENFLOW_TYPES = new Set(["OpenFlow Switch", "Host", "Switch"]);
 const DEVSTACK_TYPES = new Set(["OVS Host", "Integration Bridge", "External Bridge", "Virtual Machine"]);
 
+const isDevstackNode = (n) => {
+  if (DEVSTACK_TYPES.has(n.type)) return true;
+  if (n.id?.includes("ovsdb") || n.id?.startsWith("vm-")) return true;
+  if (n.id?.startsWith("openflow:") && Number(n.id.replace("openflow:", "")) > 100000) return true;
+  if (n.connectors?.some(c => c.name?.startsWith("tap") || c.name?.startsWith("patch") || c.name === "br-int" || c.name === "br-ex")) return true;
+  return false;
+};
+
 const CATEGORIES = [
-  { id: "openflow", label: "OpenFlow", icon: <Cpu className="w-4 h-4" />, matchFn: (n) => OPENFLOW_TYPES.has(n.type) || n.id?.startsWith("openflow:") || n.id?.startsWith("host:") },
-  { id: "devstack", label: "DevStack", icon: <NetIcon className="w-4 h-4" />, matchFn: (n) => DEVSTACK_TYPES.has(n.type) || n.id?.includes("ovsdb") || n.id?.startsWith("vm-") },
+  {
+    id: "openflow",
+    label: "OpenFlow",
+    icon: <Cpu className="w-4 h-4" />,
+    matchFn: (n) => !isDevstackNode(n) && (OPENFLOW_TYPES.has(n.type) || n.id?.startsWith("openflow:") || n.id?.startsWith("host:")),
+  },
+  {
+    id: "devstack",
+    label: "DevStack",
+    icon: <NetIcon className="w-4 h-4" />,
+    matchFn: (n) => isDevstackNode(n),
+  },
 ];
 
 const NodeItem = ({ node, onClick }) => (
