@@ -17,6 +17,11 @@ export default defineConfig(({ mode }) => {
           rewrite: (path) => path.replace(/^\/api/, ""),
           timeout: 5000,
           proxyTimeout: 5000,
+          configure: (proxy) => {
+            proxy.on("proxyRes", (proxyRes) => {
+              delete proxyRes.headers["www-authenticate"];
+            });
+          },
         },
         // Legacy ODL (Carbon/Nitrogen/Oxygen) uses /restconf/operational/
         "/api/restconf": {
@@ -26,6 +31,28 @@ export default defineConfig(({ mode }) => {
           rewrite: (path) => path.replace(/^\/api/, ""),
           timeout: 5000,
           proxyTimeout: 5000,
+          configure: (proxy) => {
+            proxy.on("proxyRes", (proxyRes) => {
+              delete proxyRes.headers["www-authenticate"];
+            });
+          },
+        },
+        // ONOS Controller proxy with auto-authentication
+        "/api/onos": {
+          target: odlTarget,
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/api\/onos/, "/onos"),
+          timeout: 5000,
+          proxyTimeout: 5000,
+          headers: {
+            Authorization: "Basic " + Buffer.from("onos:rocks").toString("base64"),
+          },
+          configure: (proxy) => {
+            proxy.on("proxyRes", (proxyRes) => {
+              delete proxyRes.headers["www-authenticate"];
+            });
+          },
         },
         // OpenStack Cloud backend (Node.js proxy on port 5000)
         "/api/openstack": {

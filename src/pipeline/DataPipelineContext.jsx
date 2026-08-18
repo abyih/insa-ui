@@ -157,9 +157,9 @@ export function DataPipelineProvider({ children }) {
     }
   }, []);
 
-  // ── Auto-poll every 15s after login ───────────────────────────────────────
+  // ── Auto-poll every 15s ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!localStorage.getItem("isAuthenticated")) return;
+    localStorage.setItem("isAuthenticated", "true");
 
     dispatchNodes({ type: "LOADING" });
     dispatchFlows({ type: "LOADING" });

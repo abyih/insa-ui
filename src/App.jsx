@@ -1,5 +1,5 @@
 import React from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import "./App.css";
 import AllNodes from "./Pages/Nodes/AllNodes";
 import NodeConnector from "./Pages/Nodes/NodeConnector";
@@ -38,56 +38,65 @@ class AppErrorBoundary extends React.Component {
 }
 
 function TopologyRoute() {
-  const [rawTopo, setRawTopo]              = React.useState(null);
-  const [cloudData, setCloudData]          = React.useState(null);
-  const [loading, setLoading]              = React.useState(true);
-  const [error, setError]                  = React.useState(null);
-  const [filter, setFilter]                = React.useState("all");
-  const [crossCheck, setCrossCheck]        = React.useState(true);
+  // OpenFlow state
+  const [openflowTopo, setOpenflowTopo]       = React.useState(null);
+  const [openflowLoading, setOpenflowLoading] = React.useState(true);
+  const [openflowError, setOpenflowError]     = React.useState(null);
 
-  const loadTopology = (targetFilter = filter) => {
-    setLoading(true);
-    setError(null);
+  // DevStack state
+  const [devstackTopo, setDevstackTopo]       = React.useState(null);
+  const [devstackLoading, setDevstackLoading] = React.useState(true);
+  const [devstackError, setDevstackError]     = React.useState(null);
+
+  // Cloud data for cross-check (DevStack only)
+  const [cloudData, setCloudData]             = React.useState(null);
+  const [crossCheck, setCrossCheck]           = React.useState(true);
+
+  const loadTopologies = React.useCallback(() => {
+    setOpenflowLoading(true);
+    setDevstackLoading(true);
+    setOpenflowError(null);
+    setDevstackError(null);
+
     import("./Pages/Topology/TopologyService").then(({ default: svc }) => {
-      // Fetch both topology data and OpenStack cloud-summary in parallel
+      // Fetch OpenFlow topology
+      svc.getNode("flow:1")
+        .then((data) => { setOpenflowTopo(data); setOpenflowLoading(false); })
+        .catch((err) => { setOpenflowError(err.message); setOpenflowLoading(false); });
+
+      // Fetch DevStack topology + cloud summary
       Promise.all([
-        svc.getNode(targetFilter),
+        svc.getNode("ovsdb:1"),
         fetch("/api/openstack/cloud-summary")
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
       ])
         .then(([topoData, cloud]) => {
-          setRawTopo(topoData);
+          setDevstackTopo(topoData);
           setCloudData(cloud);
-          setLoading(false);
+          setDevstackLoading(false);
         })
         .catch((err) => {
-          setError(err.message);
-          setLoading(false);
+          setDevstackError(err.message);
+          setDevstackLoading(false);
         });
     });
-  };
+  }, []);
 
   React.useEffect(() => {
-    loadTopology(filter);
-  }, [filter]);
+    loadTopologies();
+  }, [loadTopologies]);
 
-  // Compute displayed topology based on cross-check toggle
-  const displayedTopology = React.useMemo(() => {
-    if (!rawTopo) return null;
-
-    // If cross-checking is turned OFF or OpenStack data is unavailable, show raw OVSDB topology
+  // Cross-check filter for DevStack topology
+  const displayedDevstackTopo = React.useMemo(() => {
+    if (!devstackTopo) return null;
     if (!crossCheck || !cloudData || !cloudData.virtualMachines) {
-      return {
-        ...rawTopo,
-        nodes: [...(rawTopo.nodes || [])],
-        links: [...(rawTopo.links || [])],
-      };
+      return { ...devstackTopo, nodes: [...(devstackTopo.nodes || [])], links: [...(devstackTopo.links || [])] };
     }
 
     const myVmIds = new Set(cloudData.virtualMachines.map((vm) => vm.id));
     const foreignVmNodeIds = new Set();
-    (rawTopo.nodes || []).forEach((n) => {
+    (devstackTopo.nodes || []).forEach((n) => {
       if (n.group === "vm" && n.nodeDetails?.vmUuid) {
         if (!myVmIds.has(n.nodeDetails.vmUuid)) {
           foreignVmNodeIds.add(n.id);
@@ -95,40 +104,91 @@ function TopologyRoute() {
       }
     });
 
-    if (foreignVmNodeIds.size === 0) return rawTopo;
+    if (foreignVmNodeIds.size === 0) return devstackTopo;
 
     return {
-      ...rawTopo,
-      nodes: (rawTopo.nodes || []).filter((n) => !foreignVmNodeIds.has(n.id)),
-      links: (rawTopo.links || []).filter(
+      ...devstackTopo,
+      nodes: (devstackTopo.nodes || []).filter((n) => !foreignVmNodeIds.has(n.id)),
+      links: (devstackTopo.links || []).filter(
         (l) => !foreignVmNodeIds.has(l.from) && !foreignVmNodeIds.has(l.to)
       ),
     };
-  }, [rawTopo, cloudData, crossCheck]);
+  }, [devstackTopo, cloudData, crossCheck]);
 
-  if (loading) return <Spinner />;
-  if (error || !displayedTopology) return (
-    <div className="flex flex-col items-center justify-center h-64 text-zinc-400 gap-3">
-      <div>Topology unavailable — ODL controller not reachable or returned error: {error}</div>
-      <button 
-        onClick={() => loadTopology(filter)}
-        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg text-xs"
-      >
-        Retry Fetching Topology
-      </button>
-    </div>
-  );
+  const renderSection = (title, topo, loading, error, reloadFn, extraProps = {}) => {
+    if (loading) return <Spinner />;
+    if (error || !topo) return (
+      <div className="flex flex-col items-center justify-center h-48 text-zinc-400 gap-3 bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+        <div className="text-sm">{title} unavailable — {error || "no data returned"}</div>
+        <button 
+          onClick={reloadFn}
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg text-xs cursor-pointer"
+        >
+          Retry
+        </button>
+      </div>
+    );
+    return (
+      <TopologySimple
+        topologyData={topo}
+        title={title}
+        onReload={reloadFn}
+        {...extraProps}
+      />
+    );
+  };
 
   return (
-    <TopologySimple 
-      topologyData={displayedTopology} 
-      currentFilter={filter}
-      onFilterChange={(newFilter) => setFilter(newFilter)}
-      onReload={() => loadTopology(filter)}
-      crossCheckOpenstack={crossCheck}
-      onToggleCrossCheck={(val) => setCrossCheck(val)}
-      openstackConnected={Boolean(cloudData?.virtualMachines)}
-    />
+    <div className="space-y-8 max-w-7xl mx-auto">
+      {renderSection(
+        "OpenFlow Topology",
+        openflowTopo,
+        openflowLoading,
+        openflowError,
+        () => {
+          setOpenflowLoading(true);
+          setOpenflowError(null);
+          import("./Pages/Topology/TopologyService").then(({ default: svc }) => {
+            svc.getNode("flow:1")
+              .then((data) => { setOpenflowTopo(data); setOpenflowLoading(false); })
+              .catch((err) => { setOpenflowError(err.message); setOpenflowLoading(false); });
+          });
+        }
+      )}
+
+      {renderSection(
+        "DevStack OVSDB Topology",
+        displayedDevstackTopo,
+        devstackLoading,
+        devstackError,
+        () => {
+          setDevstackLoading(true);
+          setDevstackError(null);
+          import("./Pages/Topology/TopologyService").then(({ default: svc }) => {
+            Promise.all([
+              svc.getNode("ovsdb:1"),
+              fetch("/api/openstack/cloud-summary")
+                .then((r) => (r.ok ? r.json() : null))
+                .catch(() => null),
+            ])
+              .then(([topoData, cloud]) => {
+                setDevstackTopo(topoData);
+                setCloudData(cloud);
+                setDevstackLoading(false);
+              })
+              .catch((err) => {
+                setDevstackError(err.message);
+                setDevstackLoading(false);
+              });
+          });
+        },
+        {
+          crossCheckOpenstack: crossCheck,
+          onToggleCrossCheck: (val) => setCrossCheck(val),
+          openstackConnected: Boolean(cloudData?.virtualMachines),
+        }
+      )}
+    </div>
   );
 }
 
@@ -137,7 +197,8 @@ const App = () => (
     <Router>
       <Layout>
         <Routes>
-          <Route path="/"                    element={<Login />} />
+          <Route path="/"                    element={<Navigate to="/dashboard" replace />} />
+          <Route path="/login"               element={<Login />} />
           <Route path="/dashboard"           element={<Dashboard />} />
           <Route path="/nodes"               element={<AllNodes />} />
           <Route path="/node/:nodeId/detail" element={<NodeConnector />} />
