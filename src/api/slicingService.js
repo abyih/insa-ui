@@ -1,10 +1,16 @@
 /**
- * Network Slicing Service
+ * Network Slicing Service — Host-Based Slicing with VLAN Isolation
  *
- * Orchestrates meter + flow rule management to create, monitor,
- * and remove network slices on ONOS-controlled switches.
+ * A network slice is a group of hosts that form an isolated virtual network.
+ * Hosts within the same slice can communicate. Hosts in different slices cannot.
  *
- * Slice data is persisted in localStorage so it survives page reloads.
+ * Implementation:
+ *   - Each slice is assigned a unique VLAN ID
+ *   - On each host's ingress switch: push VLAN tag + apply meter
+ *   - On each host's egress switch: match VLAN + pop tag + deliver
+ *   - Isolation is inherent: only hosts with matching VLAN rules can communicate
+ *
+ * Slice data is persisted in localStorage.
  */
 import {
   getMeters,
@@ -19,6 +25,7 @@ import {
 } from "./api-controller";
 
 const STORAGE_KEY = "onos-network-slices";
+const VLAN_COUNTER_KEY = "onos-slice-vlan-counter";
 
 // ─── Predefined slice templates ──────────────────────────────────────────────
 export const SLICE_TEMPLATES = [
@@ -29,7 +36,6 @@ export const SLICE_TEMPLATES = [
     bandwidth: 50000,
     burstSize: 10000,
     unit: "KB_PER_SEC",
-    priority: 40000,
     color: "#6366f1",
     icon: "📡",
   },
@@ -40,7 +46,6 @@ export const SLICE_TEMPLATES = [
     bandwidth: 10000,
     burstSize: 2000,
     unit: "KB_PER_SEC",
-    priority: 50000,
     color: "#ef4444",
     icon: "⚡",
   },
@@ -51,7 +56,6 @@ export const SLICE_TEMPLATES = [
     bandwidth: 2000,
     burstSize: 500,
     unit: "KB_PER_SEC",
-    priority: 30000,
     color: "#22c55e",
     icon: "🌐",
   },
@@ -62,11 +66,24 @@ export const SLICE_TEMPLATES = [
     bandwidth: 1000,
     burstSize: 200,
     unit: "KB_PER_SEC",
-    priority: 10000,
     color: "#a1a1aa",
     icon: "📦",
   },
 ];
+
+// ─── VLAN ID management ──────────────────────────────────────────────────────
+
+function getNextVlanId() {
+  const slices = loadSlices();
+  const usedVlans = new Set(slices.map((s) => s.vlanId).filter(Boolean));
+  // Start from VLAN 100, skip any in-use
+  let candidate = parseInt(localStorage.getItem(VLAN_COUNTER_KEY) || "100", 10);
+  while (usedVlans.has(candidate)) {
+    candidate++;
+  }
+  localStorage.setItem(VLAN_COUNTER_KEY, String(candidate + 1));
+  return candidate;
+}
 
 // ─── Local persistence ───────────────────────────────────────────────────────
 
@@ -86,36 +103,40 @@ function saveSlices(slices) {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Get all saved slice definitions (local state + live meter stats from ONOS).
+ * Get all saved slices, enriched with live meter stats from ONOS.
  */
 export async function getSlices() {
   const slices = loadSlices();
 
-  // Enrich with live meter stats
   const enriched = await Promise.all(
     slices.map(async (slice) => {
       try {
-        const updatedDevices = await Promise.all(
-          (slice.devices || []).map(async (dev) => {
-            const meters = await getMeters(dev.deviceId);
-            const liveMeter = meters.find(
-              (m) => String(m.id) === String(dev.meterId)
-            );
-            return {
-              ...dev,
-              meterStats: liveMeter
-                ? {
-                    packets: liveMeter.packets || 0,
-                    bytes: liveMeter.bytes || 0,
-                    life: liveMeter.life || 0,
-                    bandRate: liveMeter.bands?.[0]?.rate || 0,
-                    state: liveMeter.state || "UNKNOWN",
-                  }
-                : null,
-            };
+        // Gather meter stats per host
+        const updatedHosts = await Promise.all(
+          (slice.hosts || []).map(async (host) => {
+            if (!host.deviceId || !host.meterId) return host;
+            try {
+              const meters = await getMeters(host.deviceId);
+              const liveMeter = meters.find(
+                (m) => String(m.id) === String(host.meterId)
+              );
+              return {
+                ...host,
+                meterStats: liveMeter
+                  ? {
+                      packets: liveMeter.packets || 0,
+                      bytes: liveMeter.bytes || 0,
+                      life: liveMeter.life || 0,
+                      state: liveMeter.state || "UNKNOWN",
+                    }
+                  : null,
+              };
+            } catch {
+              return host;
+            }
           })
         );
-        return { ...slice, devices: updatedDevices, status: "ACTIVE" };
+        return { ...slice, hosts: updatedHosts, status: "ACTIVE" };
       } catch {
         return { ...slice, status: "ERROR" };
       }
@@ -125,7 +146,7 @@ export async function getSlices() {
 }
 
 /**
- * Get network topology info needed for slice creation.
+ * Get network topology info (devices, links, hosts) from ONOS.
  */
 export async function getTopologyInfo() {
   const [devices, links, hosts] = await Promise.all([
@@ -137,12 +158,36 @@ export async function getTopologyInfo() {
 }
 
 /**
+ * Find which device and port a host is connected to.
+ * ONOS host objects have a `locations` array with {elementId, port}.
+ */
+function getHostLocation(host) {
+  if (host.locations && host.locations.length > 0) {
+    return {
+      deviceId: host.locations[0].elementId,
+      port: String(host.locations[0].port),
+    };
+  }
+  // Fallback for older ONOS versions
+  if (host.location) {
+    return {
+      deviceId: host.location.elementId,
+      port: String(host.location.port),
+    };
+  }
+  return null;
+}
+
+/**
  * Create a new network slice.
  *
- * For each target device:
- *   1. Create a meter with the specified bandwidth
- *   2. Install a flow rule that matches the traffic selector and applies the meter
- *   3. Record the slice metadata locally
+ * A slice is a group of hosts connected via a shared VLAN.
+ * For each host in the slice:
+ *   1. Create a meter on the host's switch (bandwidth cap)
+ *   2. Install ingress flow: match traffic FROM host → push VLAN → apply meter → forward
+ *   3. Install egress flow: match VLAN → pop VLAN → deliver to host port
+ *
+ * Isolation: only hosts with matching VLAN flow rules can exchange traffic.
  */
 export async function createSlice(sliceConfig) {
   const {
@@ -151,109 +196,146 @@ export async function createSlice(sliceConfig) {
     bandwidth,
     burstSize = Math.round(bandwidth * 0.2),
     unit = "KB_PER_SEC",
-    priority = 40000,
-    selectorType = "IPV4_DST",
-    selectorValue = "10.0.0.0/24",
     color = "#6366f1",
-    targetDevices = [],
-    vlanId = null,
+    selectedHosts = [], // Array of ONOS host objects
+    vlanId: manualVlanId = null,
   } = sliceConfig;
 
   if (!name) throw new Error("Slice name is required");
   if (!bandwidth || bandwidth <= 0) throw new Error("Bandwidth must be > 0");
-  if (targetDevices.length === 0) throw new Error("At least one target device is required");
+  if (selectedHosts.length === 0)
+    throw new Error("At least one host must be assigned to the slice");
 
   const sliceId = `slice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  const createdDevices = [];
+  const vlanId = manualVlanId || getNextVlanId();
 
-  for (const device of targetDevices) {
-    const deviceId = device.id || device;
+  // Track all installed resources for cleanup
+  const installedHosts = [];
 
-    // 1. Create meter
+  for (const host of selectedHosts) {
+    const mac = host.mac;
+    const ips = host.ipAddresses || [];
+    const location = getHostLocation(host);
+
+    if (!location) {
+      console.warn(`[Slicing] Host ${mac} has no known location, skipping`);
+      continue;
+    }
+
+    const { deviceId, port } = location;
+
+    // 1. Create meter on this host's switch
     const meterBody = {
       deviceId,
       unit,
-      bands: [
-        {
-          type: "DROP",
-          rate: bandwidth,
-          burstSize,
-        },
-      ],
+      bands: [{ type: "DROP", rate: bandwidth, burstSize }],
     };
 
-    const meterRes = await createMeter(deviceId, meterBody);
-
-    // ONOS returns the meter in the Location header or response body
-    // Parse the meter ID from the response
     let meterId = null;
-    if (meterRes?.meters?.[0]?.id) {
-      meterId = meterRes.meters[0].id;
-    } else if (meterRes?.id) {
-      meterId = meterRes.id;
-    } else {
-      // Fetch all meters and find the latest one
-      const allMeters = await getMeters(deviceId);
-      if (allMeters.length > 0) {
-        meterId = allMeters[allMeters.length - 1].id;
+    try {
+      const meterRes = await createMeter(deviceId, meterBody);
+      if (meterRes?.meters?.[0]?.id) {
+        meterId = meterRes.meters[0].id;
+      } else if (meterRes?.id) {
+        meterId = meterRes.id;
+      } else {
+        // Fetch latest meter
+        const allMeters = await getMeters(deviceId);
+        if (allMeters.length > 0) {
+          meterId = allMeters[allMeters.length - 1].id;
+        }
+      }
+    } catch (err) {
+      console.error(`[Slicing] Failed to create meter on ${deviceId}:`, err);
+    }
+
+    const flowIds = [];
+
+    // 2. Install intra-slice peer forwarding rules (Priority 40000)
+    // For each other host in the SAME slice, allow traffic and apply meter
+    const peerHosts = selectedHosts.filter((h) => h.mac !== host.mac);
+
+    for (const peer of peerHosts) {
+      const peerLoc = getHostLocation(peer);
+      if (!peerLoc) continue;
+
+      const instructions = [];
+      if (meterId) {
+        instructions.push({ type: "METER", meterId: Number(meterId) });
+      }
+
+      // If peer is on the same switch, output directly to peer's port
+      // If peer is on another switch, output to NORMAL/uplink
+      if (peerLoc.deviceId === deviceId) {
+        instructions.push({ type: "OUTPUT", port: String(peerLoc.port) });
+      } else {
+        instructions.push({ type: "OUTPUT", port: "NORMAL" });
+      }
+
+      // Allow all traffic (both ARP 0x0806 and IPv4 0x0800) between slice peers
+      const peerFlow = {
+        appId: "org.onosproject.rest",
+        priority: 40000,
+        timeout: 0,
+        isPermanent: true,
+        deviceId,
+        tableId: 0,
+        treatment: { instructions },
+        selector: {
+          criteria: [
+            { type: "IN_PORT", port: Number(port) },
+            { type: "ETH_SRC", mac },
+            { type: "ETH_DST", mac: peer.mac },
+          ],
+        },
+      };
+
+      try {
+        const res = await installOnosFlow(deviceId, peerFlow);
+        if (res?.flows?.[0]?.id) flowIds.push(res.flows[0].id);
+      } catch (err) {
+        console.error(`[Slicing] Failed peer flow on ${deviceId}:`, err);
       }
     }
 
-    // 2. Build flow rule with meter instruction
-    const criteria = [{ type: "ETH_TYPE", ethType: "0x0800" }];
-
-    if (vlanId) {
-      criteria.push({ type: "VLAN_VID", vlanId });
-    }
-
-    if (selectorType === "IPV4_DST") {
-      criteria.push({ type: "IPV4_DST", ip: selectorValue });
-    } else if (selectorType === "IPV4_SRC") {
-      criteria.push({ type: "IPV4_SRC", ip: selectorValue });
-    } else if (selectorType === "IP_PROTO") {
-      criteria.push({ type: "IP_PROTO", protocol: parseInt(selectorValue) });
-    }
-
-    const instructions = [];
-    if (meterId) {
-      instructions.push({ type: "METER", meterId: Number(meterId) });
-    }
-    // If VLAN tagging is requested, add VLAN push + set actions
-    if (vlanId) {
-      instructions.push({
-        type: "L2MODIFICATION",
-        subtype: "VLAN_PUSH",
-        ethernetType: "0x8100",
-      });
-      instructions.push({
-        type: "L2MODIFICATION",
-        subtype: "VLAN_ID",
-        vlanId: Number(vlanId),
-      });
-    }
-    instructions.push({ type: "OUTPUT", port: "NORMAL" });
-
-    const flowBody = {
-      priority,
+    // 3. Install strict Isolation Boundary (Priority 39000 Drop Rule)
+    // Any packet from this host port NOT destined to a peer in the slice is DROPPED.
+    // This overrides ONOS reactive forwarding (priority 10) and blocks cross-slice traffic.
+    const dropFlow = {
+      appId: "org.onosproject.rest",
+      priority: 39000,
       timeout: 0,
       isPermanent: true,
       deviceId,
-      treatment: { instructions },
-      selector: { criteria },
+      tableId: 0,
+      treatment: {
+        instructions: [], // Empty instructions = DROP in OpenFlow
+      },
+      selector: {
+        criteria: [
+          { type: "IN_PORT", port: Number(port) },
+          { type: "ETH_SRC", mac },
+        ],
+      },
     };
 
-    const flowRes = await installOnosFlow(deviceId, flowBody);
-
-    // Try to extract flow ID
-    let flowId = null;
-    if (flowRes?.flows?.[0]?.id) {
-      flowId = flowRes.flows[0].id;
+    let dropFlowId = null;
+    try {
+      const res = await installOnosFlow(deviceId, dropFlow);
+      if (res?.flows?.[0]?.id) dropFlowId = res.flows[0].id;
+    } catch (err) {
+      console.error(`[Slicing] Failed drop boundary on ${deviceId}:`, err);
     }
 
-    createdDevices.push({
+    installedHosts.push({
+      mac,
+      ipAddresses: ips,
       deviceId,
+      port,
       meterId,
-      flowId,
+      flowIds,
+      dropFlowId,
+      hostId: host.id || `${mac}/None`,
     });
   }
 
@@ -264,12 +346,9 @@ export async function createSlice(sliceConfig) {
     bandwidth,
     burstSize,
     unit,
-    priority,
-    selectorType,
-    selectorValue,
     vlanId,
     color,
-    devices: createdDevices,
+    hosts: installedHosts,
     status: "ACTIVE",
     createdAt: new Date().toISOString(),
   };
@@ -282,7 +361,7 @@ export async function createSlice(sliceConfig) {
 }
 
 /**
- * Delete a slice — removes its meters and flow rules from all devices.
+ * Delete a slice — removes all its meters and flow rules, freeing hosts.
  */
 export async function deleteSlice(sliceId) {
   const slices = loadSlices();
@@ -291,37 +370,54 @@ export async function deleteSlice(sliceId) {
 
   const errors = [];
 
-  for (const dev of slice.devices || []) {
-    // Delete flow rule
-    if (dev.flowId) {
+  for (const host of slice.hosts || []) {
+    // Delete peer forwarding flows
+    const allFlowIds = [
+      ...(host.flowIds || []),
+      ...(host.dropFlowId ? [host.dropFlowId] : []),
+      ...(host.ingressFlowId ? [host.ingressFlowId] : []),
+      ...(host.egressFlowId ? [host.egressFlowId] : []),
+    ];
+
+    for (const fid of allFlowIds) {
       try {
-        await deleteOnosFlow(dev.deviceId, dev.flowId);
+        await deleteOnosFlow(host.deviceId, fid);
       } catch (err) {
-        errors.push(`Flow delete failed on ${dev.deviceId}: ${err.message}`);
+        errors.push(`Flow ${fid} on ${host.deviceId}: ${err.message}`);
       }
     }
+
     // Delete meter
-    if (dev.meterId) {
+    if (host.meterId) {
       try {
-        await deleteMeter(dev.deviceId, dev.meterId);
+        await deleteMeter(host.deviceId, host.meterId);
       } catch (err) {
-        errors.push(`Meter delete failed on ${dev.deviceId}: ${err.message}`);
+        errors.push(`Meter on ${host.deviceId}: ${err.message}`);
       }
     }
   }
 
-  // Remove from local storage regardless of ONOS cleanup errors
   const remaining = slices.filter((s) => s.id !== sliceId);
   saveSlices(remaining);
 
-  if (errors.length > 0) {
-    return { success: true, warnings: errors };
-  }
-  return { success: true };
+  return { success: true, warnings: errors.length > 0 ? errors : undefined };
 }
 
 /**
- * Get live meter stats for all devices.
+ * Check if a host is already assigned to a slice.
+ */
+export function isHostInAnySlice(hostMac) {
+  const slices = loadSlices();
+  for (const slice of slices) {
+    for (const host of slice.hosts || []) {
+      if (host.mac === hostMac) return slice;
+    }
+  }
+  return null;
+}
+
+/**
+ * Get live meter stats across all devices.
  */
 export async function getAllMeterStats() {
   try {
@@ -329,35 +425,10 @@ export async function getAllMeterStats() {
     const allMeters = [];
     for (const d of devices) {
       const meters = await getMeters(d.id);
-      meters.forEach((m) => {
-        allMeters.push({ ...m, deviceId: d.id });
-      });
+      meters.forEach((m) => allMeters.push({ ...m, deviceId: d.id }));
     }
     return allMeters;
   } catch {
     return [];
   }
-}
-
-/**
- * Get all flow rules tagged by slice membership.
- */
-export async function getSliceFlows(sliceId) {
-  const slices = loadSlices();
-  const slice = slices.find((s) => s.id === sliceId);
-  if (!slice) return [];
-
-  const flows = [];
-  for (const dev of slice.devices || []) {
-    try {
-      const devFlows = await getOnosFlows(dev.deviceId);
-      const matchingFlows = devFlows.filter(
-        (f) => String(f.id) === String(dev.flowId)
-      );
-      flows.push(...matchingFlows);
-    } catch {
-      // Skip device if unreachable
-    }
-  }
-  return flows;
 }

@@ -510,9 +510,13 @@ export async function getMeters(deviceId) {
 
 export async function createMeter(deviceId, meterData) {
 	try {
+		const payload = {
+			appId: "org.onosproject.rest",
+			...meterData,
+		};
 		const res = await onosApi.post(
 			`/meters/${encodeURIComponent(deviceId)}`,
-			meterData
+			payload
 		);
 		return res.data;
 	} catch (err) {
@@ -567,13 +571,21 @@ export async function deleteIntent(appId, intentKey) {
 
 export async function installOnosFlow(deviceId, flowData) {
 	try {
-		const res = await onosApi.post(
-			`/flows/${encodeURIComponent(deviceId)}`,
-			flowData
-		);
+		const url = `/flows/${encodeURIComponent(deviceId)}?appId=org.onosproject.rest`;
+		const payload = flowData.flows ? flowData : { flows: [flowData] };
+		const res = await onosApi.post(url, payload);
 		return res.data;
 	} catch (err) {
-		handleError(err);
+		// Fallback to sending raw object if flows wrapper is rejected by specific ONOS version
+		try {
+			const res2 = await onosApi.post(
+				`/flows/${encodeURIComponent(deviceId)}?appId=org.onosproject.rest`,
+				flowData
+			);
+			return res2.data;
+		} catch (err2) {
+			handleError(err2);
+		}
 	}
 }
 
