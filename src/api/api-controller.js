@@ -493,5 +493,143 @@ export async function getConnectionStats() {
     return [];
   }
 }
+// ==== ONOS Meters (for Network Slicing) ====
+
+export async function getMeters(deviceId) {
+	try {
+		const url = deviceId
+			? `/meters/${encodeURIComponent(deviceId)}`
+			: "/meters";
+		const res = await onosApi.get(url);
+		return res.data?.meters || [];
+	} catch (err) {
+		if (err.response?.status === 404) return [];
+		handleError(err);
+	}
+}
+
+export async function createMeter(deviceId, meterData) {
+	try {
+		const res = await onosApi.post(
+			`/meters/${encodeURIComponent(deviceId)}`,
+			meterData
+		);
+		return res.data;
+	} catch (err) {
+		handleError(err);
+	}
+}
+
+export async function deleteMeter(deviceId, meterId) {
+	try {
+		const res = await onosApi.delete(
+			`/meters/${encodeURIComponent(deviceId)}/${encodeURIComponent(meterId)}`
+		);
+		return res.data;
+	} catch (err) {
+		handleError(err);
+	}
+}
+
+// ==== ONOS Intents (for Network Slicing) ====
+
+export async function getIntents() {
+	try {
+		const res = await onosApi.get("/intents");
+		return res.data?.intents || [];
+	} catch (err) {
+		if (err.response?.status === 404) return [];
+		handleError(err);
+	}
+}
+
+export async function createIntent(intentData) {
+	try {
+		const res = await onosApi.post("/intents", intentData);
+		return res.data;
+	} catch (err) {
+		handleError(err);
+	}
+}
+
+export async function deleteIntent(appId, intentKey) {
+	try {
+		const res = await onosApi.delete(
+			`/intents/${encodeURIComponent(appId)}/${encodeURIComponent(intentKey)}`
+		);
+		return res.data;
+	} catch (err) {
+		handleError(err);
+	}
+}
+
+// ==== ONOS Flow Rules for Slicing (with meter + VLAN support) ====
+
+export async function installOnosFlow(deviceId, flowData) {
+	try {
+		const res = await onosApi.post(
+			`/flows/${encodeURIComponent(deviceId)}`,
+			flowData
+		);
+		return res.data;
+	} catch (err) {
+		handleError(err);
+	}
+}
+
+export async function deleteOnosFlow(deviceId, flowId) {
+	try {
+		const res = await onosApi.delete(
+			`/flows/${encodeURIComponent(deviceId)}/${encodeURIComponent(flowId)}`
+		);
+		return res.data;
+	} catch (err) {
+		handleError(err);
+	}
+}
+
+export async function getOnosFlows(deviceId) {
+	try {
+		const url = deviceId
+			? `/flows/${encodeURIComponent(deviceId)}`
+			: "/flows";
+		const res = await onosApi.get(url);
+		return res.data?.flows || [];
+	} catch (err) {
+		if (err.response?.status === 404) return [];
+		handleError(err);
+	}
+}
+
+export async function getDevices() {
+	try {
+		const res = await onosApi.get("/devices");
+		return res.data?.devices || [];
+	} catch (err) {
+		if (err.response?.status === 404) return [];
+		handleError(err);
+	}
+}
+
+export async function getLinks() {
+	try {
+		const res = await onosApi.get("/links");
+		return res.data?.links || [];
+	} catch (err) {
+		if (err.response?.status === 404) return [];
+		handleError(err);
+	}
+}
+
+export async function getHosts() {
+	try {
+		const res = await onosApi.get("/hosts");
+		return res.data?.hosts || [];
+	} catch (err) {
+		if (err.response?.status === 404) return [];
+		handleError(err);
+	}
+}
+
 // ==== Export Config & axios if needed ====
-export { ODL_CONFIG, odlApi };
+export { ODL_CONFIG, ONOS_CONFIG, odlApi, onosApi };

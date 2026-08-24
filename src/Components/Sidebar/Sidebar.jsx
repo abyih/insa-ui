@@ -11,6 +11,7 @@ const links = [
 	{ title: "Modules", link: "/modules" },
 	{ title: "Yangman", link: "/yangui" },
 	{ title: "Cloud", link: "/cloud" },
+	{ title: "Network Slicing", link: "/network-slicing" },
 ];
 
 const Sidebar = () => {

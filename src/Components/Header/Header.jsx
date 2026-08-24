@@ -8,6 +8,7 @@ import {
   Activity,
   Shield,
   Cloud,
+  Layers,
   Wrench,
   Menu,
   X,
@@ -59,6 +60,7 @@ function Header() {
     { label: "Stats", icon: <Activity className="w-4 h-4" />, to: "/stats" },
     { label: "Anomaly", icon: <Shield className="w-4 h-4" />, to: "/anomaly" },
     { label: "Cloud", icon: <Cloud className="w-4 h-4" />, to: "/cloud" },
+    { label: "Slicing", icon: <Layers className="w-4 h-4" />, to: "/network-slicing" },
     { label: "Tools", icon: <Wrench className="w-4 h-4" />, to: "/api-tester" },
   ];
 
