@@ -1,14 +1,16 @@
 /**
- * Network Slicing Service — Host-Based Slicing with VLAN Isolation
+ * Network Slicing Service — Host-Based Slicing with End-to-End Multi-Switch Routing
  *
  * A network slice is a group of hosts that form an isolated virtual network.
- * Hosts within the same slice can communicate. Hosts in different slices cannot.
+ * Hosts within the same slice can communicate seamlessly across any topology.
+ * Hosts in different slices are strictly isolated.
  *
  * Implementation:
- *   - Each slice is assigned a unique VLAN ID
- *   - On each host's ingress switch: push VLAN tag + apply meter
- *   - On each host's egress switch: match VLAN + pop tag + deliver
- *   - Isolation is inherent: only hosts with matching VLAN rules can communicate
+ *   - Each slice is assigned a unique VLAN ID and bandwidth limit.
+ *   - Multi-switch path computation dynamically installs OpenFlow rules (Priority 40000)
+ *     across ingress, spine, and egress switches between all slice peers.
+ *   - Slice-aware ARP broadcast routing ensures instant peer discovery only within the slice.
+ *   - Priority 39000 Drop Boundary ensures complete cross-slice isolation.
  *
  * Slice data is persisted in localStorage.
  */
@@ -76,7 +78,6 @@ export const SLICE_TEMPLATES = [
 function getNextVlanId() {
   const slices = loadSlices();
   const usedVlans = new Set(slices.map((s) => s.vlanId).filter(Boolean));
-  // Start from VLAN 100, skip any in-use
   let candidate = parseInt(localStorage.getItem(VLAN_COUNTER_KEY) || "100", 10);
   while (usedVlans.has(candidate)) {
     candidate++;
@@ -111,7 +112,6 @@ export async function getSlices() {
   const enriched = await Promise.all(
     slices.map(async (slice) => {
       try {
-        // Gather meter stats per host
         const updatedHosts = await Promise.all(
           (slice.hosts || []).map(async (host) => {
             if (!host.deviceId || !host.meterId) return host;
@@ -159,16 +159,14 @@ export async function getTopologyInfo() {
 
 /**
  * Find which device and port a host is connected to.
- * ONOS host objects have a `locations` array with {elementId, port}.
  */
-function getHostLocation(host) {
+export function getHostLocation(host) {
   if (host.locations && host.locations.length > 0) {
     return {
       deviceId: host.locations[0].elementId,
       port: String(host.locations[0].port),
     };
   }
-  // Fallback for older ONOS versions
   if (host.location) {
     return {
       deviceId: host.location.elementId,
@@ -179,15 +177,74 @@ function getHostLocation(host) {
 }
 
 /**
+ * Find shortest path between two devices in the ONOS network topology.
+ * Returns array of hops: [{ deviceId, inPort, outPort }]
+ */
+export function findSwitchPath(srcDev, dstDev, links = [], srcHostPort, dstHostPort) {
+  if (srcDev === dstDev) {
+    return [
+      {
+        deviceId: srcDev,
+        inPort: Number(srcHostPort),
+        outPort: Number(dstHostPort),
+      },
+    ];
+  }
+
+  // Build adjacency graph: dev -> [{ nextDev, outPort, inPortNext }]
+  const adj = {};
+  for (const link of links) {
+    const u = link.src?.device;
+    const v = link.dst?.device;
+    const pOut = link.src?.port;
+    const pIn = link.dst?.port;
+    if (!u || !v) continue;
+    if (!adj[u]) adj[u] = [];
+    adj[u].push({ nextDev: v, outPort: pOut, inPortNext: pIn });
+  }
+
+  // BFS
+  const queue = [[{ dev: srcDev, inPort: srcHostPort, outPort: null }]];
+  const visited = new Set([srcDev]);
+
+  while (queue.length > 0) {
+    const path = queue.shift();
+    const current = path[path.length - 1];
+
+    if (current.dev === dstDev) {
+      current.outPort = dstHostPort;
+      return path.map((h) => ({
+        deviceId: h.dev,
+        inPort: Number(h.inPort),
+        outPort: Number(h.outPort),
+      }));
+    }
+
+    const neighbors = adj[current.dev] || [];
+    for (const n of neighbors) {
+      if (!visited.has(n.nextDev)) {
+        visited.add(n.nextDev);
+        current.outPort = n.outPort;
+        queue.push([
+          ...path.slice(0, -1),
+          { ...current },
+          { dev: n.nextDev, inPort: n.inPortNext, outPort: null },
+        ]);
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Create a new network slice.
  *
- * A slice is a group of hosts connected via a shared VLAN.
  * For each host in the slice:
- *   1. Create a meter on the host's switch (bandwidth cap)
- *   2. Install ingress flow: match traffic FROM host → push VLAN → apply meter → forward
- *   3. Install egress flow: match VLAN → pop VLAN → deliver to host port
- *
- * Isolation: only hosts with matching VLAN flow rules can exchange traffic.
+ *   1. Optionally create a bandwidth meter on the host's switch.
+ *   2. Install end-to-end multi-switch forwarding rules (Priority 40000) for unicast IP & ARP.
+ *   3. Install slice-aware ARP broadcast routing between peers (Priority 40000).
+ *   4. Install strict isolation drop rule on ingress switches (Priority 39000).
  */
 export async function createSlice(sliceConfig) {
   const {
@@ -197,7 +254,7 @@ export async function createSlice(sliceConfig) {
     burstSize = Math.round(bandwidth * 0.2),
     unit = "KB_PER_SEC",
     color = "#6366f1",
-    selectedHosts = [], // Array of ONOS host objects
+    selectedHosts = [],
     vlanId: manualVlanId = null,
   } = sliceConfig;
 
@@ -209,9 +266,14 @@ export async function createSlice(sliceConfig) {
   const sliceId = `slice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const vlanId = manualVlanId || getNextVlanId();
 
-  // Track all installed resources for cleanup
+  // Fetch current topology links for path calculation
+  const topologyLinks = await getLinks().catch(() => []);
+
+  // Track all installed flow rules across all switches for cleanup: [{ deviceId, flowId }]
+  const installedFlows = [];
   const installedHosts = [];
 
+  // Step 1: Create meters & drop boundary rules for each host
   for (const host of selectedHosts) {
     const mac = host.mac;
     const ips = host.ipAddresses || [];
@@ -224,93 +286,44 @@ export async function createSlice(sliceConfig) {
 
     const { deviceId, port } = location;
 
-    // 1. Create meter on this host's switch
-    const meterBody = {
-      deviceId,
-      unit,
-      bands: [{ type: "DROP", rate: bandwidth, burstSize }],
-    };
-
+    // Create meter on this host's switch
     let meterId = null;
     try {
+      const meterBody = {
+        deviceId,
+        unit,
+        bands: [{ type: "DROP", rate: bandwidth, burstSize }],
+      };
       const meterRes = await createMeter(deviceId, meterBody);
-      if (meterRes?.meters?.[0]?.id) {
-        meterId = meterRes.meters[0].id;
-      } else if (meterRes?.id) {
+      if (meterRes?.id) {
         meterId = meterRes.id;
-      } else {
-        // Fetch latest meter
-        const allMeters = await getMeters(deviceId);
-        if (allMeters.length > 0) {
-          meterId = allMeters[allMeters.length - 1].id;
-        }
       }
     } catch (err) {
-      console.error(`[Slicing] Failed to create meter on ${deviceId}:`, err);
+      console.warn(`[Slicing] Meter creation optional on ${deviceId}:`, err.message);
     }
 
-    const flowIds = [];
-
-    // 2. Install intra-slice peer forwarding rules (Priority 40000)
-    // For each other host in the SAME slice, allow traffic and apply meter
-    const peerHosts = selectedHosts.filter((h) => h.mac !== host.mac);
-
-    for (const peer of peerHosts) {
-      const peerLoc = getHostLocation(peer);
-      if (!peerLoc) continue;
-
-      const instructions = [];
-      if (meterId) {
-        instructions.push({ type: "METER", meterId: Number(meterId) });
-      }
-
-      // If peer is on the same switch, output directly to peer's port
-      // If peer is on another switch, output to NORMAL/uplink
-      if (peerLoc.deviceId === deviceId) {
-        instructions.push({ type: "OUTPUT", port: String(peerLoc.port) });
-      } else {
-        instructions.push({ type: "OUTPUT", port: "NORMAL" });
-      }
-
-      // Allow all traffic (both ARP 0x0806 and IPv4 0x0800) between slice peers
-      const peerFlow = {
-        appId: "org.onosproject.rest",
-        priority: 40000,
-        timeout: 0,
-        isPermanent: true,
-        deviceId,
-        tableId: 0,
-        treatment: { instructions },
-        selector: {
-          criteria: [
-            { type: "IN_PORT", port: Number(port) },
-            { type: "ETH_SRC", mac },
-            { type: "ETH_DST", mac: peer.mac },
-          ],
-        },
-      };
-
+    // Verify meter exists on switch before attaching to flows
+    if (meterId) {
       try {
-        const res = await installOnosFlow(deviceId, peerFlow);
-        if (res?.flows?.[0]?.id) flowIds.push(res.flows[0].id);
-      } catch (err) {
-        console.error(`[Slicing] Failed peer flow on ${deviceId}:`, err);
+        const switchMeters = await getMeters(deviceId);
+        const exists = switchMeters.some((m) => String(m.id) === String(meterId));
+        if (!exists) {
+          console.warn(`[Slicing] Meter ${meterId} not active yet on ${deviceId}, omitting from flow`);
+          meterId = null;
+        }
+      } catch {
+        meterId = null;
       }
     }
 
-    // 3. Install strict Isolation Boundary (Priority 39000 Drop Rule)
-    // Any packet from this host port NOT destined to a peer in the slice is DROPPED.
-    // This overrides ONOS reactive forwarding (priority 10) and blocks cross-slice traffic.
+    // Install strict Isolation Boundary (Priority 39000 Drop Rule) on ingress switch
     const dropFlow = {
-      appId: "org.onosproject.rest",
       priority: 39000,
       timeout: 0,
       isPermanent: true,
       deviceId,
       tableId: 0,
-      treatment: {
-        instructions: [], // Empty instructions = DROP in OpenFlow
-      },
+      treatment: { instructions: [] },
       selector: {
         criteria: [
           { type: "IN_PORT", port: Number(port) },
@@ -322,7 +335,8 @@ export async function createSlice(sliceConfig) {
     let dropFlowId = null;
     try {
       const res = await installOnosFlow(deviceId, dropFlow);
-      if (res?.flows?.[0]?.id) dropFlowId = res.flows[0].id;
+      dropFlowId = res?.flowId || res?.id;
+      if (dropFlowId) installedFlows.push({ deviceId, flowId: dropFlowId });
     } catch (err) {
       console.error(`[Slicing] Failed drop boundary on ${deviceId}:`, err);
     }
@@ -333,10 +347,95 @@ export async function createSlice(sliceConfig) {
       deviceId,
       port,
       meterId,
-      flowIds,
       dropFlowId,
       hostId: host.id || `${mac}/None`,
     });
+  }
+
+  // Step 2: Install end-to-end peer forwarding and ARP flows between all pairs of hosts
+  for (let i = 0; i < selectedHosts.length; i++) {
+    const hostA = selectedHosts[i];
+    const locA = getHostLocation(hostA);
+    if (!locA) continue;
+
+    const hostAInstalled = installedHosts.find((h) => h.mac === hostA.mac);
+    const meterIdA = hostAInstalled?.meterId;
+
+    for (let j = 0; j < selectedHosts.length; j++) {
+      if (i === j) continue;
+      const hostB = selectedHosts[j];
+      const locB = getHostLocation(hostB);
+      if (!locB) continue;
+
+      // Find path from switch of Host A to switch of Host B
+      const hops = findSwitchPath(locA.deviceId, locB.deviceId, topologyLinks, locA.port, locB.port);
+      if (!hops || hops.length === 0) {
+        console.warn(`[Slicing] No path between ${locA.deviceId} and ${locB.deviceId}`);
+        continue;
+      }
+
+      // Install forwarding flows along each hop
+      for (let hopIdx = 0; hopIdx < hops.length; hopIdx++) {
+        const hop = hops[hopIdx];
+        const isIngress = hopIdx === 0;
+
+        const instructions = [];
+        if (isIngress && meterIdA) {
+          instructions.push({ type: "METER", meterId: Number(meterIdA) });
+        }
+        instructions.push({ type: "OUTPUT", port: String(hop.outPort) });
+
+        // Unicast traffic flow (both IPv4 and unicast ARP)
+        const unicastFlow = {
+          priority: 40000,
+          timeout: 0,
+          isPermanent: true,
+          deviceId: hop.deviceId,
+          tableId: 0,
+          treatment: { instructions },
+          selector: {
+            criteria: [
+              { type: "IN_PORT", port: Number(hop.inPort) },
+              { type: "ETH_SRC", mac: hostA.mac },
+              { type: "ETH_DST", mac: hostB.mac },
+            ],
+          },
+        };
+
+        try {
+          const res = await installOnosFlow(hop.deviceId, unicastFlow);
+          const fid = res?.flowId || res?.id;
+          if (fid) installedFlows.push({ deviceId: hop.deviceId, flowId: fid });
+        } catch (err) {
+          console.error(`[Slicing] Failed unicast flow on ${hop.deviceId}:`, err);
+        }
+
+        // ARP Broadcast flow (0x0806) along the path so Host A's ARP requests reach Host B
+        const arpFlow = {
+          priority: 40000,
+          timeout: 0,
+          isPermanent: true,
+          deviceId: hop.deviceId,
+          tableId: 0,
+          treatment: { instructions: [{ type: "OUTPUT", port: String(hop.outPort) }] },
+          selector: {
+            criteria: [
+              { type: "IN_PORT", port: Number(hop.inPort) },
+              { type: "ETH_TYPE", ethType: "0x0806" },
+              { type: "ETH_SRC", mac: hostA.mac },
+            ],
+          },
+        };
+
+        try {
+          const res = await installOnosFlow(hop.deviceId, arpFlow);
+          const fid = res?.flowId || res?.id;
+          if (fid) installedFlows.push({ deviceId: hop.deviceId, flowId: fid });
+        } catch (err) {
+          console.error(`[Slicing] Failed ARP flow on ${hop.deviceId}:`, err);
+        }
+      }
+    }
   }
 
   const slice = {
@@ -349,6 +448,7 @@ export async function createSlice(sliceConfig) {
     vlanId,
     color,
     hosts: installedHosts,
+    flows: installedFlows,
     status: "ACTIVE",
     createdAt: new Date().toISOString(),
   };
@@ -361,7 +461,7 @@ export async function createSlice(sliceConfig) {
 }
 
 /**
- * Delete a slice — removes all its meters and flow rules, freeing hosts.
+ * Delete a slice — removes all its meters and flow rules across all switches.
  */
 export async function deleteSlice(sliceId) {
   const slices = loadSlices();
@@ -370,25 +470,28 @@ export async function deleteSlice(sliceId) {
 
   const errors = [];
 
-  for (const host of slice.hosts || []) {
-    // Delete peer forwarding flows
-    const allFlowIds = [
-      ...(host.flowIds || []),
-      ...(host.dropFlowId ? [host.dropFlowId] : []),
-      ...(host.ingressFlowId ? [host.ingressFlowId] : []),
-      ...(host.egressFlowId ? [host.egressFlowId] : []),
-    ];
-
-    for (const fid of allFlowIds) {
+  // 1. Delete all tracked flow rules
+  for (const item of slice.flows || []) {
+    if (item.deviceId && item.flowId) {
       try {
-        await deleteOnosFlow(host.deviceId, fid);
+        await deleteOnosFlow(item.deviceId, item.flowId);
       } catch (err) {
-        errors.push(`Flow ${fid} on ${host.deviceId}: ${err.message}`);
+        errors.push(`Flow ${item.flowId} on ${item.deviceId}: ${err.message}`);
+      }
+    }
+  }
+
+  // 2. Delete drop rules and meters for each host
+  for (const host of slice.hosts || []) {
+    if (host.dropFlowId && host.deviceId) {
+      try {
+        await deleteOnosFlow(host.deviceId, host.dropFlowId);
+      } catch (err) {
+        errors.push(`Drop flow on ${host.deviceId}: ${err.message}`);
       }
     }
 
-    // Delete meter
-    if (host.meterId) {
+    if (host.meterId && host.deviceId) {
       try {
         await deleteMeter(host.deviceId, host.meterId);
       } catch (err) {

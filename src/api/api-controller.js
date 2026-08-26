@@ -518,7 +518,15 @@ export async function createMeter(deviceId, meterData) {
 			`/meters/${encodeURIComponent(deviceId)}`,
 			payload
 		);
-		return res.data;
+		const loc = res.headers?.location || res.headers?.Location || "";
+		let id = null;
+		if (loc) {
+			const parts = loc.trim().split("/");
+			id = parts[parts.length - 1];
+		}
+		if (!id && res.data?.id) id = res.data.id;
+		if (!id && res.data?.meters?.[0]?.id) id = res.data.meters[0].id;
+		return { id, data: res.data, location: loc };
 	} catch (err) {
 		handleError(err);
 	}
@@ -574,7 +582,13 @@ export async function installOnosFlow(deviceId, flowData) {
 		const url = `/flows/${encodeURIComponent(deviceId)}?appId=org.onosproject.rest`;
 		const payload = flowData.flows ? flowData : { flows: [flowData] };
 		const res = await onosApi.post(url, payload);
-		return res.data;
+		const loc = res.headers?.location || res.headers?.Location || "";
+		let id = null;
+		if (loc) {
+			const parts = loc.trim().split("/");
+			id = parts[parts.length - 1];
+		}
+		return { ...res.data, id: id || res.data?.flows?.[0]?.id, flowId: id || res.data?.flows?.[0]?.id };
 	} catch (err) {
 		// Fallback to sending raw object if flows wrapper is rejected by specific ONOS version
 		try {

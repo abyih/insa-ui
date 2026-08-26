@@ -39,6 +39,7 @@ import {
   isHostInAnySlice,
   SLICE_TEMPLATES,
 } from "../api/slicingService";
+import SliceTopology from "../Components/SliceTopology";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -695,6 +696,7 @@ export default function NetworkSlicing() {
   const [slices, setSlices] = useState([]);
   const [onosHosts, setOnosHosts] = useState([]);
   const [devices, setDevices] = useState([]);
+  const [links, setLinks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -720,6 +722,7 @@ export default function NetworkSlicing() {
       setSlices(slicesData);
       setOnosHosts(topoData.hosts || []);
       setDevices(topoData.devices || []);
+      setLinks(topoData.links || []);
       setMeterStats(statsData);
     } catch (err) {
       showMessage("Failed to load slicing data: " + err.message, "error");
@@ -833,6 +836,16 @@ export default function NetworkSlicing() {
         <StatCard icon={Gauge} label="Total Bandwidth" value={formatRate(totalBandwidth)} sub={`${meterStats.length} meter(s) deployed`} color="#f59e0b" />
         <StatCard icon={Shield} label="Isolation" value="VLAN" sub={`${slices.length} isolated network(s)`} color="#3b82f6" />
       </div>
+
+      {/* Visual Slice Topology Map */}
+      <SliceTopology
+        slices={slices}
+        devices={devices}
+        links={links}
+        hosts={onosHosts}
+        onRefresh={loadData}
+        loading={loading}
+      />
 
       {/* Main layout */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 18, marginBottom: 24 }}>
