@@ -39,7 +39,7 @@ export const SLICE_TEMPLATES = [
     burstSize: 10000,
     unit: "KB_PER_SEC",
     color: "#6366f1",
-    icon: "📡",
+    type: "broadband",
   },
   {
     id: "urllc",
@@ -49,7 +49,7 @@ export const SLICE_TEMPLATES = [
     burstSize: 2000,
     unit: "KB_PER_SEC",
     color: "#ef4444",
-    icon: "⚡",
+    type: "low-latency",
   },
   {
     id: "mmtc",
@@ -59,7 +59,7 @@ export const SLICE_TEMPLATES = [
     burstSize: 500,
     unit: "KB_PER_SEC",
     color: "#22c55e",
-    icon: "🌐",
+    type: "iot",
   },
   {
     id: "best-effort",
@@ -69,9 +69,27 @@ export const SLICE_TEMPLATES = [
     burstSize: 200,
     unit: "KB_PER_SEC",
     color: "#a1a1aa",
-    icon: "📦",
+    type: "standard",
   },
 ];
+
+// ─── Network Capacity & Admission Control ───────────────────────────────────
+export const DEFAULT_TOTAL_CAPACITY_KBPS = 100000; // 100 MB/s (800 Mbps) default physical capacity
+
+export function getNetworkCapacity() {
+  const saved = localStorage.getItem("onos-slice-total-capacity");
+  if (saved) {
+    const parsed = Number(saved);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_TOTAL_CAPACITY_KBPS;
+}
+
+export function setNetworkCapacity(kbps) {
+  if (kbps && kbps > 0) {
+    localStorage.setItem("onos-slice-total-capacity", String(kbps));
+  }
+}
 
 // ─── VLAN ID management ──────────────────────────────────────────────────────
 
@@ -150,11 +168,63 @@ export async function getSlices() {
  */
 export async function getTopologyInfo() {
   const [devices, links, hosts] = await Promise.all([
-    getDevices(),
-    getLinks(),
-    getHosts(),
+    getDevices().catch(() => []),
+    getLinks().catch(() => []),
+    getHosts().catch(() => []),
   ]);
-  return { devices, links, hosts };
+
+  const allHosts = [...(hosts || [])];
+  const knownMacs = new Set(allHosts.map((h) => (h.mac || "").toLowerCase()));
+
+  // Include any hosts already configured in slices that ONOS /hosts may not return yet
+  const slices = loadSlices();
+  for (const s of slices) {
+    for (const sh of s.hosts || []) {
+      const mac = (sh.mac || "").toLowerCase();
+      if (mac && !knownMacs.has(mac)) {
+        knownMacs.add(mac);
+        allHosts.push({
+          id: sh.hostId || `${sh.mac}/None`,
+          mac: sh.mac,
+          ipAddresses: sh.ipAddresses || [],
+          locations: sh.deviceId ? [{ elementId: sh.deviceId, port: String(sh.port || "1") }] : [],
+          location: sh.deviceId ? { elementId: sh.deviceId, port: String(sh.port || "1") } : null,
+          deviceId: sh.deviceId,
+          port: String(sh.port || "1"),
+        });
+      }
+    }
+  }
+
+  // Fallback: If ONOS has not learned hosts yet (e.g. fresh Mininet before pingall)
+  // synthesize standard endpoints from leaf switches so hosts are visible
+  if (allHosts.length === 0 && devices.length > 0) {
+    const leafSwitches = devices.filter((d) => {
+      const name = (d.annotations?.datapathDescription || d.id).toLowerCase();
+      return name !== "s1" && !name.includes("core") && !name.includes("spine");
+    });
+    const targetSwitches = leafSwitches.length > 0 ? leafSwitches : devices;
+
+    let count = 1;
+    targetSwitches.forEach((sw) => {
+      for (let i = 1; i <= 2; i++) {
+        const mac = `00:00:00:00:00:0${count}`;
+        const ip = `10.0.0.${count}`;
+        allHosts.push({
+          id: `host:h${count}`,
+          mac,
+          ipAddresses: [ip],
+          locations: [{ elementId: sw.id, port: String(i) }],
+          location: { elementId: sw.id, port: String(i) },
+          deviceId: sw.id,
+          port: String(i),
+        });
+        count++;
+      }
+    });
+  }
+
+  return { devices, links, hosts: allHosts };
 }
 
 /**
@@ -171,6 +241,12 @@ export function getHostLocation(host) {
     return {
       deviceId: host.location.elementId,
       port: String(host.location.port),
+    };
+  }
+  if (host.deviceId) {
+    return {
+      deviceId: host.deviceId,
+      port: String(host.port || "1"),
     };
   }
   return null;
@@ -262,6 +338,22 @@ export async function createSlice(sliceConfig) {
   if (!bandwidth || bandwidth <= 0) throw new Error("Bandwidth must be > 0");
   if (selectedHosts.length === 0)
     throw new Error("At least one host must be assigned to the slice");
+
+  // Admission Control: Check if requested bandwidth fits within remaining capacity pool
+  const existingSlices = loadSlices();
+  const currentAllocated = existingSlices.reduce((sum, s) => sum + (Number(s.bandwidth) || 0), 0);
+  const totalCapacity = getNetworkCapacity();
+  const requestedBandwidth = Number(bandwidth) || 0;
+
+  if (currentAllocated + requestedBandwidth > totalCapacity) {
+    const remaining = Math.max(0, totalCapacity - currentAllocated);
+    const reqStr = requestedBandwidth >= 1000 ? `${(requestedBandwidth / 1000).toFixed(1)} MB/s` : `${requestedBandwidth} KB/s`;
+    const remStr = remaining >= 1000 ? `${(remaining / 1000).toFixed(1)} MB/s` : `${remaining} KB/s`;
+    const capStr = `${(totalCapacity / 1000).toFixed(0)} MB/s`;
+    throw new Error(
+      `Admission Control Rejected: Requested ${reqStr} exceeds remaining available capacity (${remStr} free of ${capStr} total pool).`
+    );
+  }
 
   const sliceId = `slice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const vlanId = manualVlanId || getNextVlanId();

@@ -18,6 +18,10 @@ import {
   XCircle,
   Info,
   UserPlus,
+  Radio,
+  Zap,
+  Globe,
+  Box,
 } from "lucide-react";
 import {
   BarChart,
@@ -38,8 +42,12 @@ import {
   getAllMeterStats,
   isHostInAnySlice,
   SLICE_TEMPLATES,
+  getNetworkCapacity,
+  setNetworkCapacity,
+  DEFAULT_TOTAL_CAPACITY_KBPS,
 } from "../api/slicingService";
 import SliceTopology from "../Components/SliceTopology";
+import AiIntentPanel from "../Components/IntentSlicing/AiIntentPanel";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -127,11 +135,12 @@ function StatCard({ icon: Icon, label, value, sub, color = "#6366f1" }) {
 function MessageBanner({ message, type = "info", onClose }) {
   if (!message) return null;
   const configs = {
-    success: { bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.25)", color: "#34d399", icon: "✓" },
-    error: { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.25)", color: "#f87171", icon: "⚠" },
-    info: { bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.25)", color: "#818cf8", icon: "ℹ" },
+    success: { bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.25)", color: "#34d399", icon: CheckCircle2 },
+    error: { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.25)", color: "#f87171", icon: AlertTriangle },
+    info: { bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.25)", color: "#818cf8", icon: Info },
   };
   const c = configs[type] || configs.info;
+  const IconComponent = c.icon;
   return (
     <motion.div
       initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
@@ -141,7 +150,7 @@ function MessageBanner({ message, type = "info", onClose }) {
         display: "flex", alignItems: "center", gap: 10, marginBottom: 16,
       }}
     >
-      <span style={{ fontSize: 16 }}>{c.icon}</span>
+      <IconComponent size={16} color={c.color} />
       <span style={{ flex: 1 }}>{message}</span>
       {onClose && (
         <button onClick={onClose} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", fontSize: 14, padding: 0 }}>✕</button>
@@ -350,7 +359,17 @@ function SliceCard({ slice, onDelete, onToggle, isExpanded }) {
 
 // ─── Create Slice Modal ──────────────────────────────────────────────────────
 
-function CreateSliceModal({ isOpen, onClose, onSubmit, onosHosts, loading }) {
+function CreateSliceModal({
+  isOpen,
+  onClose,
+  onSubmit,
+  onosHosts,
+  loading,
+  totalCapacity = 100000,
+  totalAllocatedBandwidth = 0,
+  remainingCapacity = 100000,
+  initialData = null,
+}) {
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -362,6 +381,37 @@ function CreateSliceModal({ isOpen, onClose, onSubmit, onosHosts, loading }) {
     selectedHostIds: [],
   });
   const [selectedTemplate, setSelectedTemplate] = useState(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (initialData) {
+        setForm({
+          name: initialData.name || "",
+          description: initialData.description || "",
+          bandwidth: initialData.bandwidth || 5000,
+          burstSize: initialData.burstSize || Math.round((initialData.bandwidth || 5000) * 0.2),
+          unit: initialData.unit || "KB_PER_SEC",
+          color: initialData.color || SLICE_COLORS[0],
+          vlanId: initialData.vlanId || "",
+          selectedHostIds: initialData.selectedHostIds || [],
+        });
+      } else {
+        setForm({
+          name: "",
+          description: "",
+          bandwidth: 5000,
+          burstSize: 1000,
+          unit: "KB_PER_SEC",
+          color: SLICE_COLORS[0],
+          vlanId: "",
+          selectedHostIds: [],
+        });
+      }
+    }
+  }, [isOpen, initialData]);
+
+  const requestedBandwidth = Number(form.bandwidth) || 0;
+  const isOverCapacity = requestedBandwidth > remainingCapacity;
 
   const applyTemplate = (template) => {
     setSelectedTemplate(template.id);
@@ -396,6 +446,7 @@ function CreateSliceModal({ isOpen, onClose, onSubmit, onosHosts, loading }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (isOverCapacity) return;
     const selectedHostObjects = onosHosts.filter((h) =>
       form.selectedHostIds.includes(h.id || `${h.mac}/None`)
     );
@@ -469,20 +520,33 @@ function CreateSliceModal({ isOpen, onClose, onSubmit, onosHosts, loading }) {
           <div style={{ marginBottom: 20 }}>
             <label style={labelStyle}>Slice Type (Quick Templates)</label>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
-              {SLICE_TEMPLATES.map((t) => (
-                <button key={t.id} type="button" onClick={() => applyTemplate(t)}
-                  style={{
-                    padding: "10px 12px", borderRadius: 10, cursor: "pointer", textAlign: "left",
-                    border: `1px solid ${selectedTemplate === t.id ? t.color : "var(--theme-card-border)"}`,
-                    background: selectedTemplate === t.id ? `${t.color}15` : "var(--theme-bg)",
-                    color: "var(--color-zinc-50)", transition: "all 0.15s",
-                  }}
-                >
-                  <div style={{ fontSize: 16, marginBottom: 4 }}>{t.icon}</div>
-                  <div style={{ fontSize: 11, fontWeight: 700 }}>{t.name.split("(")[0].trim()}</div>
-                  <div style={{ fontSize: 10, color: "var(--theme-text-muted)", marginTop: 2 }}>{formatRate(t.bandwidth)}</div>
-                </button>
-              ))}
+              {SLICE_TEMPLATES.map((t) => {
+                const IconComponent =
+                  t.id === "embb" ? Radio :
+                  t.id === "urllc" ? Zap :
+                  t.id === "mmtc" ? Globe : Box;
+                return (
+                  <button key={t.id} type="button" onClick={() => applyTemplate(t)}
+                    style={{
+                      padding: "10px 12px", borderRadius: 10, cursor: "pointer", textAlign: "left",
+                      border: `1px solid ${selectedTemplate === t.id ? t.color : "var(--theme-card-border)"}`,
+                      background: selectedTemplate === t.id ? `${t.color}15` : "var(--theme-bg)",
+                      color: "var(--color-zinc-50)", transition: "all 0.15s",
+                    }}
+                  >
+                    <div style={{
+                      width: 26, height: 26, borderRadius: 6,
+                      background: `${t.color}20`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      marginBottom: 6,
+                    }}>
+                      <IconComponent size={14} color={t.color} />
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 700 }}>{t.name.split("(")[0].trim()}</div>
+                    <div style={{ fontSize: 10, color: "var(--theme-text-muted)", marginTop: 2 }}>{formatRate(t.bandwidth)}</div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -509,11 +573,33 @@ function CreateSliceModal({ isOpen, onClose, onSubmit, onosHosts, loading }) {
             </div>
           </div>
 
-          <div style={{ marginBottom: 14 }}>
-            <label style={labelStyle}>Description</label>
-            <input type="text" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="What is this slice for?" style={inputStyle}
-            />
+          {/* Physical Bandwidth Pool & Admission Control Card */}
+          <div style={{
+            padding: "12px 16px", borderRadius: 12, marginBottom: 16,
+            background: isOverCapacity ? "rgba(239, 68, 68, 0.1)" : "rgba(99, 102, 241, 0.08)",
+            border: `1px solid ${isOverCapacity ? "rgba(239, 68, 68, 0.3)" : "rgba(99, 102, 241, 0.2)"}`,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+              <span style={{ color: "var(--theme-text-muted)", fontWeight: 600 }}>Total Infrastructure Capacity:</span>
+              <span style={{ color: "var(--color-zinc-50)", fontWeight: 700 }}>{formatRate(totalCapacity)}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 8 }}>
+              <span style={{ color: "var(--theme-text-muted)", fontWeight: 600 }}>Available Unallocated Pool:</span>
+              <span style={{ color: remainingCapacity > 0 ? "#22c55e" : "#ef4444", fontWeight: 700 }}>
+                {formatRate(remainingCapacity)}
+              </span>
+            </div>
+            {/* Visual allocation bar */}
+            <div style={{ height: 6, borderRadius: 3, background: "rgba(255, 255, 255, 0.1)", overflow: "hidden", display: "flex" }}>
+              <div style={{ width: `${Math.min(100, (totalAllocatedBandwidth / totalCapacity) * 100)}%`, background: "#6366f1" }} />
+              <div style={{ width: `${Math.min(100 - (totalAllocatedBandwidth / totalCapacity) * 100, (requestedBandwidth / totalCapacity) * 100)}%`, background: isOverCapacity ? "#ef4444" : form.color }} />
+            </div>
+            {isOverCapacity && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#f87171", fontSize: 11, fontWeight: 600, marginTop: 8 }}>
+                <AlertTriangle size={13} />
+                <span>Admission Control Alert: Requested {formatRate(requestedBandwidth)} exceeds remaining capacity ({formatRate(remainingCapacity)}).</span>
+              </div>
+            )}
           </div>
 
           {/* Bandwidth + VLAN */}
@@ -668,17 +754,20 @@ function CreateSliceModal({ isOpen, onClose, onSubmit, onosHosts, loading }) {
               }}>
               Cancel
             </button>
-            <button type="submit" disabled={loading || form.selectedHostIds.length === 0}
+            <button type="submit" disabled={loading || form.selectedHostIds.length === 0 || isOverCapacity}
               style={{
                 padding: "10px 24px", borderRadius: 10, border: "none",
-                background: loading ? "#4f46e5" : "#6366f1", color: "#fff",
+                background: isOverCapacity ? "rgba(239,68,68,0.3)" : loading ? "#4f46e5" : "#6366f1",
+                color: isOverCapacity ? "#fca5a5" : "#fff",
                 fontSize: 13, fontWeight: 700,
-                cursor: loading ? "wait" : "pointer",
+                cursor: isOverCapacity ? "not-allowed" : loading ? "wait" : "pointer",
                 display: "flex", alignItems: "center", gap: 8,
-                opacity: form.selectedHostIds.length === 0 ? 0.5 : 1, transition: "all 0.15s",
+                opacity: form.selectedHostIds.length === 0 || isOverCapacity ? 0.6 : 1, transition: "all 0.15s",
               }}>
               {loading ? (
                 <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Creating...</>
+              ) : isOverCapacity ? (
+                <><AlertTriangle size={14} /> Capacity Exceeded</>
               ) : (
                 <><Layers size={14} /> Create Slice</>
               )}
@@ -700,6 +789,7 @@ export default function NetworkSlicing() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [prefillData, setPrefillData] = useState(null);
   const [expandedSlice, setExpandedSlice] = useState(null);
   const [message, setMessage] = useState(null);
   const [messageType, setMessageType] = useState("info");
@@ -777,8 +867,12 @@ export default function NetworkSlicing() {
   }, [slices, loadData, showMessage]);
 
   // Computed
+  const totalCapacity = useMemo(() => getNetworkCapacity(), []);
   const totalHosts = useMemo(() => slices.reduce((sum, s) => sum + (s.hosts?.length || 0), 0), [slices]);
   const totalBandwidth = useMemo(() => slices.reduce((sum, s) => sum + (s.bandwidth || 0), 0), [slices]);
+  const remainingCapacity = useMemo(() => Math.max(0, totalCapacity - totalBandwidth), [totalCapacity, totalBandwidth]);
+  const allocatedPercent = useMemo(() => Math.min(100, Math.round((totalBandwidth / totalCapacity) * 100)), [totalBandwidth, totalCapacity]);
+
   const pieData = useMemo(() => slices.map((s) => ({
     name: s.name.length > 14 ? s.name.slice(0, 14) + "…" : s.name,
     value: s.hosts?.length || 0, color: s.color,
@@ -810,7 +904,7 @@ export default function NetworkSlicing() {
             }}>
             <RefreshCw size={14} style={loading ? { animation: "spin 1s linear infinite" } : {}} /> Refresh
           </button>
-          <button onClick={() => setShowCreate(true)}
+          <button onClick={() => { setPrefillData(null); setShowCreate(true); }}
             style={{
               display: "flex", alignItems: "center", gap: 6, padding: "9px 18px",
               borderRadius: 10, border: "none", background: "#6366f1", color: "#fff",
@@ -830,12 +924,61 @@ export default function NetworkSlicing() {
       </AnimatePresence>
 
       {/* Stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 16 }}>
         <StatCard icon={Layers} label="Active Slices" value={slices.length} sub={`${onosHosts.length} hosts discovered`} color="#6366f1" />
         <StatCard icon={Monitor} label="Hosts Assigned" value={totalHosts} sub={`of ${onosHosts.length} total`} color="#22c55e" />
-        <StatCard icon={Gauge} label="Total Bandwidth" value={formatRate(totalBandwidth)} sub={`${meterStats.length} meter(s) deployed`} color="#f59e0b" />
+        <StatCard icon={Gauge} label="Committed Bandwidth" value={formatRate(totalBandwidth)} sub={`${allocatedPercent}% of ${formatRate(totalCapacity)} Pool`} color="#f59e0b" />
         <StatCard icon={Shield} label="Isolation" value="VLAN" sub={`${slices.length} isolated network(s)`} color="#3b82f6" />
       </div>
+
+      {/* Physical Bandwidth Capacity Budget Bar */}
+      <div style={{
+        background: "var(--theme-card)",
+        border: "1px solid var(--theme-card-border)",
+        borderRadius: 16,
+        padding: "16px 20px",
+        marginBottom: 24,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Gauge size={16} color="#f59e0b" />
+            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--color-zinc-50)" }}>
+              Physical Infrastructure Bandwidth Capacity Pool
+            </span>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--theme-text-muted)" }}>
+            Committed: <b style={{ color: "var(--color-zinc-50)" }}>{formatRate(totalBandwidth)}</b> / <b style={{ color: "#a5b4fc" }}>{formatRate(totalCapacity)}</b> ({allocatedPercent}% Allocated • <span style={{ color: remainingCapacity > 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{formatRate(remainingCapacity)} Available</span>)
+          </div>
+        </div>
+
+        {/* Multi-segment progress bar */}
+        <div style={{ height: 10, borderRadius: 5, background: "rgba(255, 255, 255, 0.08)", overflow: "hidden", display: "flex", gap: 2 }}>
+          {slices.map((s) => {
+            const pct = (s.bandwidth / totalCapacity) * 100;
+            return (
+              <div
+                key={s.id}
+                title={`${s.name}: ${formatRate(s.bandwidth)} (${pct.toFixed(1)}%)`}
+                style={{ width: `${pct}%`, background: s.color, transition: "width 0.3s ease" }}
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      {/* AI Intent-Based Slicing Engine Panel */}
+      <AiIntentPanel
+        onosHosts={onosHosts}
+        existingSlices={slices}
+        totalCapacity={totalCapacity}
+        remainingCapacity={remainingCapacity}
+        onDeploySlice={handleCreate}
+        onPrefillManualForm={(data) => {
+          setPrefillData(data);
+          setShowCreate(true);
+        }}
+        loading={creating}
+      />
 
       {/* Visual Slice Topology Map */}
       <SliceTopology
@@ -973,8 +1116,19 @@ export default function NetworkSlicing() {
       {/* Create Modal */}
       <AnimatePresence>
         {showCreate && (
-          <CreateSliceModal isOpen={showCreate} onClose={() => setShowCreate(false)}
-            onSubmit={handleCreate} onosHosts={onosHosts} loading={creating}
+          <CreateSliceModal
+            isOpen={showCreate}
+            onClose={() => {
+              setShowCreate(false);
+              setPrefillData(null);
+            }}
+            onSubmit={handleCreate}
+            onosHosts={onosHosts}
+            loading={creating}
+            totalCapacity={totalCapacity}
+            totalAllocatedBandwidth={totalBandwidth}
+            remainingCapacity={remainingCapacity}
+            initialData={prefillData}
           />
         )}
       </AnimatePresence>
