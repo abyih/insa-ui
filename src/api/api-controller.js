@@ -106,7 +106,8 @@ export async function getNodes() {
 				onosApi.get("/flows").catch(() => ({ data: { flows: [] } })),
 			]);
 
-			const devices = devRes.data?.devices || [];
+			const rawDevices = devRes.data?.devices || [];
+			const devices = rawDevices.filter((d) => d.available === true || d.available === "true");
 			const flows = flowsRes.data?.flows || [];
 
 			// Fetch ports for each device in parallel
@@ -588,6 +589,32 @@ export async function installOnosFlow(deviceId, flowData) {
 			const parts = loc.trim().split("/");
 			id = parts[parts.length - 1];
 		}
+
+		if (!id) {
+			try {
+				const flowsRes = await onosApi.get(`/flows/${encodeURIComponent(deviceId)}`);
+				const flows = flowsRes.data?.flows || [];
+				const target = flowData.flows?.[0] || flowData;
+				const srcMac = target.selector?.criteria?.find((c) => c.type === "ETH_SRC")?.mac?.toLowerCase();
+				const dstMac = target.selector?.criteria?.find((c) => c.type === "ETH_DST")?.mac?.toLowerCase();
+				const priority = target.priority;
+
+				const matching = flows.find((f) => {
+					if (f.priority !== priority) return false;
+					const fSrc = f.selector?.criteria?.find((c) => c.type === "ETH_SRC")?.mac?.toLowerCase();
+					const fDst = f.selector?.criteria?.find((c) => c.type === "ETH_DST")?.mac?.toLowerCase();
+					if (srcMac && fSrc !== srcMac) return false;
+					if (dstMac && fDst !== dstMac) return false;
+					return true;
+				});
+				if (matching) {
+					id = matching.id;
+				}
+			} catch {
+				/* silent */
+			}
+		}
+
 		return { ...res.data, id: id || res.data?.flows?.[0]?.id, flowId: id || res.data?.flows?.[0]?.id };
 	} catch (err) {
 		// Fallback to sending raw object if flows wrapper is rejected by specific ONOS version
@@ -627,10 +654,14 @@ export async function getOnosFlows(deviceId) {
 	}
 }
 
-export async function getDevices() {
+export async function getDevices(onlyAvailable = true) {
 	try {
 		const res = await onosApi.get("/devices");
-		return res.data?.devices || [];
+		const allDevices = res.data?.devices || [];
+		if (onlyAvailable) {
+			return allDevices.filter((d) => d.available === true || d.available === "true");
+		}
+		return allDevices;
 	} catch (err) {
 		if (err.response?.status === 404) return [];
 		handleError(err);

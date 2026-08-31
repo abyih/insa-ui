@@ -4,6 +4,8 @@ import Sidebar from "../Sidebar/Sidebar";
 import Header from "../Header/Header";
 import Footer from "../Footer/Footer";
 import GlobalAttackAlert from "../GlobalAttackAlert";
+import ToastContainer from "../Notifications/ToastContainer";
+import NotificationDrawer from "../Notifications/NotificationDrawer";
 
 const Layout = ({ children }) => {
 	const location = useLocation();
@@ -24,6 +26,8 @@ const Layout = ({ children }) => {
      <div className="flex flex-col min-h-screen bg-zinc-950 text-zinc-50">
       <Header />
       <GlobalAttackAlert />
+      <ToastContainer />
+      <NotificationDrawer />
 
       <div className="flex flex-1">
         <div className="flex-1 mt-20 bg-zinc-950">

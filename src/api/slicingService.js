@@ -106,7 +106,7 @@ function getNextVlanId() {
 
 // ─── Local persistence ───────────────────────────────────────────────────────
 
-function loadSlices() {
+export function loadSlices() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : [];
@@ -115,7 +115,7 @@ function loadSlices() {
   }
 }
 
-function saveSlices(slices) {
+export function saveSlices(slices) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(slices));
 }
 
@@ -167,61 +167,89 @@ export async function getSlices() {
  * Get network topology info (devices, links, hosts) from ONOS.
  */
 export async function getTopologyInfo() {
-  const [devices, links, hosts] = await Promise.all([
-    getDevices().catch(() => []),
+  const [rawDevices, rawLinks, hosts] = await Promise.all([
+    getDevices(true).catch(() => []),
     getLinks().catch(() => []),
     getHosts().catch(() => []),
   ]);
 
-  const allHosts = [...(hosts || [])];
-  const knownMacs = new Set(allHosts.map((h) => (h.mac || "").toLowerCase()));
+  const devices = (rawDevices || []).filter((d) => d.available === true || d.available === "true");
 
-  // Include any hosts already configured in slices that ONOS /hosts may not return yet
-  const slices = loadSlices();
-  for (const s of slices) {
-    for (const sh of s.hosts || []) {
-      const mac = (sh.mac || "").toLowerCase();
-      if (mac && !knownMacs.has(mac)) {
-        knownMacs.add(mac);
-        allHosts.push({
-          id: sh.hostId || `${sh.mac}/None`,
-          mac: sh.mac,
-          ipAddresses: sh.ipAddresses || [],
-          locations: sh.deviceId ? [{ elementId: sh.deviceId, port: String(sh.port || "1") }] : [],
-          location: sh.deviceId ? { elementId: sh.deviceId, port: String(sh.port || "1") } : null,
-          deviceId: sh.deviceId,
-          port: String(sh.port || "1"),
-        });
-      }
-    }
+  // If no switches are active in the network (e.g. Mininet is closed), clear topology
+  if (devices.length === 0) {
+    return { devices: [], links: [], hosts: [] };
   }
 
-  // Fallback: If ONOS has not learned hosts yet (e.g. fresh Mininet before pingall)
-  // synthesize standard endpoints from leaf switches so hosts are visible
-  if (allHosts.length === 0 && devices.length > 0) {
-    const leafSwitches = devices.filter((d) => {
-      const name = (d.annotations?.datapathDescription || d.id).toLowerCase();
-      return name !== "s1" && !name.includes("core") && !name.includes("spine");
-    });
-    const targetSwitches = leafSwitches.length > 0 ? leafSwitches : devices;
+  const activeDeviceIds = new Set(devices.map((d) => d.id));
+  const links = (rawLinks || []).filter(
+    (l) => activeDeviceIds.has(l.src?.device) && activeDeviceIds.has(l.dst?.device)
+  );
 
-    let count = 1;
-    targetSwitches.forEach((sw) => {
-      for (let i = 1; i <= 2; i++) {
-        const mac = `00:00:00:00:00:0${count}`;
-        const ip = `10.0.0.${count}`;
-        allHosts.push({
-          id: `host:h${count}`,
-          mac,
-          ipAddresses: [ip],
-          locations: [{ elementId: sw.id, port: String(i) }],
-          location: { elementId: sw.id, port: String(i) },
-          deviceId: sw.id,
-          port: String(i),
-        });
-        count++;
+  // 1. Live ONOS Hosts attached to active switches (authoritative source of truth)
+  const liveHosts = (hosts || []).filter((h) =>
+    (h.locations || []).some((loc) => activeDeviceIds.has(loc.elementId))
+  );
+
+  let allHosts = [...liveHosts];
+
+  // 2. If NO live hosts discovered yet in ONOS, check saved slices or fallback to leaf switches
+  if (allHosts.length === 0) {
+    const knownMacs = new Set();
+    const knownIps = new Set();
+    const slices = loadSlices();
+
+    for (const s of slices) {
+      for (const sh of s.hosts || []) {
+        const mac = (sh.mac || "").toLowerCase();
+        const ip = ((sh.ipAddresses || [])[0] || "").toLowerCase();
+        const isKnown = (mac && knownMacs.has(mac)) || (ip && knownIps.has(ip));
+
+        if (!isKnown && (!sh.deviceId || activeDeviceIds.has(sh.deviceId))) {
+          if (mac) knownMacs.add(mac);
+          if (ip) knownIps.add(ip);
+          allHosts.push({
+            id: sh.hostId || `${sh.mac}/None`,
+            mac: sh.mac,
+            ipAddresses: sh.ipAddresses || [],
+            locations: sh.deviceId ? [{ elementId: sh.deviceId, port: String(sh.port || "1") }] : [],
+            location: sh.deviceId ? { elementId: sh.deviceId, port: String(sh.port || "1") } : null,
+            deviceId: sh.deviceId,
+            port: String(sh.port || "1"),
+          });
+        }
       }
-    });
+    }
+
+    // 3. Fallback: If STILL 0 hosts discovered, synthesize endpoints strictly for leaf switches (e.g. s2, s3 = 4 hosts)
+    if (allHosts.length === 0 && devices.length > 0) {
+      const leafSwitches = devices.filter((d) => {
+        if (devices.length <= 1) return true;
+        const desc = (d.annotations?.datapathDescription || "").toLowerCase();
+        if (desc === "s1" || desc.includes("core") || desc.includes("spine")) return false;
+        const parts = String(d.id || "").split(":");
+        const num = parseInt(parts[parts.length - 1], 16);
+        return num !== 1;
+      });
+      const targetSwitches = leafSwitches.length > 0 ? leafSwitches : devices;
+
+      let count = 1;
+      targetSwitches.forEach((sw) => {
+        for (let i = 1; i <= 2; i++) {
+          const mac = `00:00:00:00:00:0${count}`;
+          const ip = `10.0.0.${count}`;
+          allHosts.push({
+            id: `host:h${count}`,
+            mac,
+            ipAddresses: [ip],
+            locations: [{ elementId: sw.id, port: String(i) }],
+            location: { elementId: sw.id, port: String(i) },
+            deviceId: sw.id,
+            port: String(i),
+          });
+          count++;
+        }
+      });
+    }
   }
 
   return { devices, links, hosts: allHosts };
@@ -561,6 +589,9 @@ export async function deleteSlice(sliceId) {
   if (!slice) throw new Error(`Slice not found: ${sliceId}`);
 
   const errors = [];
+  const hostMacs = new Set(
+    (slice.hosts || []).map((h) => (h.mac || "").toLowerCase()).filter(Boolean)
+  );
 
   // 1. Delete all tracked flow rules
   for (const item of slice.flows || []) {
@@ -589,6 +620,35 @@ export async function deleteSlice(sliceId) {
       } catch (err) {
         errors.push(`Meter on ${host.deviceId}: ${err.message}`);
       }
+    }
+  }
+
+  // 3. Deep network cleanup: Query all switches and delete any matching rules for this slice's hosts
+  if (hostMacs.size > 0) {
+    try {
+      const devices = await getDevices().catch(() => []);
+      for (const dev of devices) {
+        const flows = await getOnosFlows(dev.id).catch(() => []);
+        for (const f of flows) {
+          const srcMac = f.selector?.criteria?.find((c) => c.type === "ETH_SRC")?.mac?.toLowerCase();
+          const dstMac = f.selector?.criteria?.find((c) => c.type === "ETH_DST")?.mac?.toLowerCase();
+
+          // If the flow rule was installed for these hosts (Priority 40000, 39000, or reactive forwarding)
+          const isSliceFlow =
+            (f.priority === 40000 || f.priority === 39000 || f.appId === "org.onosproject.fwd") &&
+            ((srcMac && hostMacs.has(srcMac)) || (dstMac && hostMacs.has(dstMac)));
+
+          if (isSliceFlow) {
+            try {
+              await deleteOnosFlow(dev.id, f.id);
+            } catch (err) {
+              errors.push(`Deep clean flow ${f.id} on ${dev.id}: ${err.message}`);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[Slicing] Deep clean error during slice deletion:", err);
     }
   }
 

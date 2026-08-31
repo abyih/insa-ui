@@ -16,8 +16,10 @@ import {
   FileCode,
   Sun,
   Moon,
+  Bell,
 } from "lucide-react";
 import logo from "../../assets/images/insa_logo.png";
+import { useNotifications } from "../../context/NotificationContext";
 
 function Header() {
   const location = useLocation();
@@ -26,6 +28,8 @@ function Header() {
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return document.documentElement.classList.contains("dark");
   });
+
+  const { unreadCount, isDrawerOpen, setIsDrawerOpen } = useNotifications();
 
   // Keep state in sync with DOM class in case it is changed elsewhere
   useEffect(() => {
@@ -109,6 +113,22 @@ function Header() {
               );
             })}
           </nav>
+        )}
+
+        {/* Notifications Bell */}
+        {!isLoginPage && (
+          <button
+            onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+            className="relative p-2 rounded-lg border border-zinc-850 hover:bg-zinc-900 text-zinc-450 hover:text-zinc-100 transition-all duration-200 focus:outline-none"
+            title="View SLA Alerts & Notifications"
+          >
+            <Bell className="w-4 h-4 text-zinc-300" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-extrabold rounded-full flex items-center justify-center border-2 border-zinc-950 animate-pulse">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </button>
         )}
 
         {/* Theme switcher */}

@@ -48,6 +48,7 @@ import {
 } from "../api/slicingService";
 import SliceTopology from "../Components/SliceTopology";
 import AiIntentPanel from "../Components/IntentSlicing/AiIntentPanel";
+import { useNotifications } from "../context/NotificationContext";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -882,6 +883,8 @@ export default function NetworkSlicing() {
     bandwidth: s.bandwidth, fill: s.color,
   })), [slices]);
 
+  const { burstViolations, setIsDrawerOpen } = useNotifications();
+
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto" }}>
       {/* Header */}
@@ -917,6 +920,69 @@ export default function NetworkSlicing() {
           </button>
         </div>
       </div>
+
+      {/* SLA Burst Violations Banner */}
+      {burstViolations.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            padding: "14px 18px",
+            borderRadius: 14,
+            background: "rgba(239, 68, 68, 0.12)",
+            border: "1px solid rgba(239, 68, 68, 0.35)",
+            marginBottom: 20,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                background: "rgba(239, 68, 68, 0.2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <Zap size={18} color="#ef4444" style={{ animation: "pulse 1.5s infinite" }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#fca5a5" }}>
+                Traffic Burst & SLA Violation Alert ({burstViolations.length})
+              </div>
+              <div style={{ fontSize: 11, color: "var(--theme-text-muted, #a1a1aa)", marginTop: 2 }}>
+                {burstViolations[0].message}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsDrawerOpen(true)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "7px 14px",
+              borderRadius: 8,
+              background: "rgba(239, 68, 68, 0.2)",
+              border: "1px solid rgba(239, 68, 68, 0.4)",
+              color: "#fca5a5",
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Open Alert Center
+          </button>
+        </motion.div>
+      )}
 
       {/* Messages */}
       <AnimatePresence>

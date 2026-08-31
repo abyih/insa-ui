@@ -16,6 +16,7 @@ import Stats from "./Pages/Stats";
 import AnomalyDetector from "./Pages/AnomalyDetector/AnomalyDetector";
 import Cloud from "./Pages/Cloud";
 import NetworkSlicing from "./Pages/NetworkSlicing";
+import { NotificationProvider } from "./context/NotificationContext";
 
 // ─── Top-level error boundary — shows the actual crash instead of white screen
 class AppErrorBoundary extends React.Component {
@@ -195,27 +196,29 @@ function TopologyRoute() {
 
 const App = () => (
   <AppErrorBoundary>
-    <Router>
-      <Layout>
-        <Routes>
-          <Route path="/"                    element={<Navigate to="/dashboard" replace />} />
-          <Route path="/login"               element={<Login />} />
-          <Route path="/dashboard"           element={<Dashboard />} />
-          <Route path="/nodes"               element={<AllNodes />} />
-          <Route path="/node/:nodeId/detail" element={<NodeConnector />} />
-          <Route path="/flows"               element={<Flows />} />
-          <Route path="/flow-manager"       element={<FlowManager />} />
-          <Route path="/stats"               element={<Stats />} />
-          <Route path="/topology"            element={<TopologyRoute />} />
-          <Route path="/cloud"               element={<Cloud />} />
-          <Route path="/network-slicing"   element={<NetworkSlicing />} />
-          <Route path="/anomaly"             element={<AnomalyDetector />} />
-          <Route path="/api-tester"          element={<ApiTester />} />
-          <Route path="/yangui"              element={<Yangman />} />
-          <Route path="*"                    element={<div className="p-8 text-gray-400">Page not found</div>} />
-        </Routes>
-      </Layout>
-    </Router>
+    <NotificationProvider>
+      <Router>
+        <Layout>
+          <Routes>
+            <Route path="/"                    element={<Navigate to="/dashboard" replace />} />
+            <Route path="/login"               element={<Login />} />
+            <Route path="/dashboard"           element={<Dashboard />} />
+            <Route path="/nodes"               element={<AllNodes />} />
+            <Route path="/node/:nodeId/detail" element={<NodeConnector />} />
+            <Route path="/flows"               element={<Flows />} />
+            <Route path="/flow-manager"       element={<FlowManager />} />
+            <Route path="/stats"               element={<Stats />} />
+            <Route path="/topology"            element={<TopologyRoute />} />
+            <Route path="/cloud"               element={<Cloud />} />
+            <Route path="/network-slicing"   element={<NetworkSlicing />} />
+            <Route path="/anomaly"             element={<AnomalyDetector />} />
+            <Route path="/api-tester"          element={<ApiTester />} />
+            <Route path="/yangui"              element={<Yangman />} />
+            <Route path="*"                    element={<div className="p-8 text-gray-400">Page not found</div>} />
+          </Routes>
+        </Layout>
+      </Router>
+    </NotificationProvider>
   </AppErrorBoundary>
 );
 

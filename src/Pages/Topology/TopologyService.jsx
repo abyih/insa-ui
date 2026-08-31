@@ -98,8 +98,23 @@ const NetworkTopologySvc = {
 					.catch(() => null),
 			]);
 
-			const devices = data.devices || [];
-			const links = linkRes.links || [];
+			const rawDevices = data.devices || [];
+			const devices = rawDevices.filter((d) => d.available === true || d.available === "true");
+			if (devices.length === 0) {
+				return {
+					nodes: [],
+					links: [],
+					dots: [],
+					rawTopologies: [],
+				};
+			}
+
+			const links = (linkRes.links || []).filter((l) => {
+				const srcDev = l.src?.device;
+				const dstDev = l.dst?.device;
+				const activeDevIds = new Set(devices.map((d) => d.id));
+				return activeDevIds.has(srcDev) && activeDevIds.has(dstDev);
+			});
 			const hosts = hostRes.hosts || [];
 			const vms = cloudRes?.virtualMachines || [];
 
@@ -213,14 +228,14 @@ const NetworkTopologySvc = {
 
 				// 2. Identify root switch (s1) and leaf switches (s2, s3, etc.)
 				const s1Node =
-					ofNodes.find(
-						(n) =>
-							n.label === "s1" ||
-							n.id.endsWith("1") ||
-							n.nodeDetails?.bridgeName === "s1"
-					) || ofNodes[0];
+					ofNodes.find((n) => {
+						const desc = (n.nodeDetails?.bridgeName || n.label || "").toLowerCase();
+						const parts = String(n.id || "").split(":");
+						const num = parseInt(parts[parts.length - 1], 16);
+						return desc === "s1" || desc.includes("core") || desc.includes("spine") || num === 1;
+					}) || ofNodes[0];
 
-				const leafSwitches = ofNodes.filter((n) => n.id !== s1Node?.id);
+				const leafSwitches = ofNodes.length > 1 ? ofNodes.filter((n) => n.id !== s1Node?.id) : ofNodes;
 
 				// Connect root s1 to leaf switches (s2, s3)
 				if (s1Node && leafSwitches.length > 0) {

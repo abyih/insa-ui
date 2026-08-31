@@ -78,22 +78,38 @@ export default function SliceTopology({
     return map;
   }, [slices]);
 
+  // Only consider active/connected OpenFlow devices
+  const activeDevices = useMemo(() => {
+    return (devices || []).filter((d) => d.available !== false && d.available !== "false");
+  }, [devices]);
+
   // Combine ONOS discovered hosts, hosts saved in slices, and standard switch hosts
   const combinedHosts = useMemo(() => {
-    const map = new Map();
+    // If no switches are active in the network, no hosts can exist
+    if (activeDevices.length === 0) return [];
 
-    // 1. Add ONOS discovered hosts
-    for (const h of hosts || []) {
-      const key = (h.mac || h.id || "").toLowerCase();
-      if (key) map.set(key, h);
+    const activeDevIds = new Set(activeDevices.map((d) => d.id));
+    const liveHosts = (hosts || []).filter((h) => {
+      const loc = h.locations?.[0] || h.location;
+      return !loc || activeDevIds.has(loc.elementId);
+    });
+
+    if (liveHosts.length > 0) {
+      return liveHosts;
     }
 
-    // 2. Add any hosts defined in slices that might not be in ONOS /hosts yet
+    const map = new Map();
+    const knownIps = new Set();
+
+    // 2. Add any hosts defined in slices that attach to active switches
     for (const s of slices || []) {
       for (const sh of s.hosts || []) {
-        const key = (sh.mac || sh.hostId || "").toLowerCase();
-        if (key && !map.has(key)) {
-          map.set(key, {
+        if (sh.deviceId && !activeDevIds.has(sh.deviceId)) continue;
+        const mac = (sh.mac || sh.hostId || "").toLowerCase();
+        const ip = ((sh.ipAddresses || [])[0] || "").toLowerCase();
+        const isKnown = (mac && map.has(mac)) || (ip && knownIps.has(ip));
+        if (!isKnown) {
+          if (mac) map.set(mac, {
             id: sh.hostId || `${sh.mac}/None`,
             mac: sh.mac,
             ipAddresses: sh.ipAddresses || [],
@@ -102,17 +118,22 @@ export default function SliceTopology({
             locations: sh.deviceId ? [{ elementId: sh.deviceId, port: String(sh.port || "1") }] : [],
             location: sh.deviceId ? { elementId: sh.deviceId, port: String(sh.port || "1") } : null,
           });
+          if (ip) knownIps.add(ip);
         }
       }
     }
 
-    // 3. Fallback: If STILL no hosts at all but switches exist, generate standard topology hosts (h1, h2 per switch)
-    if (map.size === 0 && devices.length > 0) {
-      const leafSwitches = devices.filter((d) => {
+    // 3. Fallback: If STILL no hosts at all but active switches exist, generate standard topology hosts strictly for leaf switches (e.g. s2, s3 = 4 hosts)
+    if (map.size === 0 && activeDevices.length > 0) {
+      const leafSwitches = activeDevices.filter((d) => {
+        if (activeDevices.length <= 1) return true;
         const name = getSwitchDisplayName(d).toLowerCase();
-        return name !== "s1" && !name.includes("core") && !name.includes("spine");
+        if (name === "s1" || name.includes("core") || name.includes("spine")) return false;
+        const parts = String(d.id || "").split(":");
+        const num = parseInt(parts[parts.length - 1], 16);
+        return num !== 1;
       });
-      const targetSwitches = leafSwitches.length > 0 ? leafSwitches : devices;
+      const targetSwitches = leafSwitches.length > 0 ? leafSwitches : activeDevices;
 
       let count = 1;
       targetSwitches.forEach((sw) => {
@@ -134,26 +155,28 @@ export default function SliceTopology({
     }
 
     return Array.from(map.values());
-  }, [hosts, slices, devices]);
+  }, [hosts, slices, activeDevices]);
 
   // Determine Core vs Leaf Switches for Hierarchical Levels
   const switchLevelMap = useMemo(() => {
     const map = new Map();
-    for (const dev of devices) {
+    for (const dev of activeDevices) {
       const name = getSwitchDisplayName(dev).toLowerCase();
-      if (name === "s1" || name.includes("core") || name.includes("spine")) {
+      const parts = String(dev.id || "").split(":");
+      const num = parseInt(parts[parts.length - 1], 16);
+      if (name === "s1" || name.includes("core") || name.includes("spine") || num === 1) {
         map.set(dev.id, 0); // Core Level
       } else {
         map.set(dev.id, 1); // Leaf Level
       }
     }
 
-    if (![...map.values()].includes(0) && devices.length > 0) {
-      map.set(devices[0].id, 0);
+    if (![...map.values()].includes(0) && activeDevices.length > 0) {
+      map.set(activeDevices[0].id, 0);
     }
 
     return map;
-  }, [devices]);
+  }, [activeDevices]);
 
   // Build Vis Network Nodes & Edges
   const graphData = useMemo(() => {
@@ -162,7 +185,7 @@ export default function SliceTopology({
     const edgeIdSet = new Set();
 
     // 1. Add Switches (Device Switch Image)
-    for (const dev of devices) {
+    for (const dev of activeDevices) {
       const devName = getSwitchDisplayName(dev);
       const level = switchLevelMap.get(dev.id) ?? 1;
       const isCore = level === 0;
@@ -244,7 +267,7 @@ export default function SliceTopology({
       const targetSwitchId =
         loc?.elementId ||
         host.deviceId ||
-        (devices.length > 0 ? devices[devices.length - 1].id : null);
+        (activeDevices.length > 0 ? activeDevices[activeDevices.length - 1].id : null);
       const portNumber = loc?.port || host.port || "1";
 
       const parentLevel = targetSwitchId ? (switchLevelMap.get(targetSwitchId) ?? 1) : 1;
@@ -669,6 +692,46 @@ export default function SliceTopology({
         />
 
         <div ref={containerRef} style={{ width: "100%", height: "100%", background: "transparent" }} />
+
+        {/* Empty State Overlay when no switches are connected */}
+        {activeDevices.length === 0 && !loading && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
+              background: "rgba(12, 12, 16, 0.8)",
+              backdropFilter: "blur(4px)",
+              zIndex: 4,
+              borderRadius: 12,
+            }}
+          >
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: "rgba(99, 102, 241, 0.1)",
+                border: "1px solid rgba(99, 102, 241, 0.25)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Cpu size={22} color="#818cf8" />
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-zinc-50)" }}>
+              No Active SDN Switches Connected
+            </div>
+            <div style={{ fontSize: 11, color: "var(--theme-text-muted)", maxWidth: 360, textAlign: "center", lineHeight: 1.4 }}>
+              Start Mininet (e.g. <code>sudo mn --controller=remote...</code>) or connect OpenFlow switches to visualize the slice topology.
+            </div>
+          </div>
+        )}
 
         {/* Selected Node Details Drawer */}
         <AnimatePresence>
