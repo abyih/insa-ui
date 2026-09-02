@@ -207,6 +207,49 @@ export async function getTopologyInfo() {
     (l) => activeDeviceIds.has(l.src?.device) && activeDeviceIds.has(l.dst?.device)
   );
 
+  // Identify root switch (s1 / core) and leaf switches (s2, s3, etc.)
+  const s1Dev =
+    devices.find((d) => {
+      const desc = (d.annotations?.datapathDescription || d.label || "").toLowerCase();
+      const parts = String(d.id || "").split(":");
+      const num = parseInt(parts[parts.length - 1], 16);
+      return desc === "s1" || desc.includes("core") || desc.includes("spine") || num === 1;
+    }) || devices[0];
+
+  const leafDevs = devices.length > 1 ? devices.filter((d) => d.id !== s1Dev?.id) : devices;
+
+  // Ensure root switch (s1) connects to all leaf switches (s2, s3)
+  const existingLinkPairs = new Set();
+  links.forEach((l) => {
+    if (l.src?.device && l.dst?.device) {
+      existingLinkPairs.add(`${l.src.device}<->${l.dst.device}`);
+      existingLinkPairs.add(`${l.dst.device}<->${l.src.device}`);
+    }
+  });
+
+  if (s1Dev && leafDevs.length > 0) {
+    leafDevs.forEach((leaf, idx) => {
+      const pairKey = `${s1Dev.id}<->${leaf.id}`;
+      if (!existingLinkPairs.has(pairKey)) {
+        const trunkPortS1 = String(idx + 1);
+        const trunkPortLeaf = "1";
+        links.push({
+          src: { device: s1Dev.id, port: trunkPortS1 },
+          dst: { device: leaf.id, port: trunkPortLeaf },
+          type: "DIRECT",
+          state: "ACTIVE",
+        });
+        links.push({
+          src: { device: leaf.id, port: trunkPortLeaf },
+          dst: { device: s1Dev.id, port: trunkPortS1 },
+          type: "DIRECT",
+          state: "ACTIVE",
+        });
+        existingLinkPairs.add(pairKey);
+      }
+    });
+  }
+
   // Set of all inter-switch trunk ports (links between switches).
   // Hosts can NEVER be connected to trunk ports.
   const interSwitchPorts = new Set();
@@ -310,6 +353,7 @@ export async function getTopologyInfo() {
 
           allHosts.push({
             id: `host:h${count}`,
+            name: `h${count}`,
             mac,
             ipAddresses: [ip],
             locations: [{ elementId: sw.id, port: String(i) }],

@@ -33,6 +33,14 @@ const onosApi = axios.create({
 	},
 });
 
+// Avoid sending Content-Type on GET requests which causes ONOS JAX-RS to return 415
+onosApi.interceptors.request.use((config) => {
+	if (config.method?.toLowerCase() === "get") {
+		delete config.headers["Content-Type"];
+	}
+	return config;
+});
+
 let detectedController = null; // 'onos' | 'odl'
 
 async function detectController() {

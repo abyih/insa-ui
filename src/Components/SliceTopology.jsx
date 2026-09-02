@@ -29,20 +29,24 @@ function formatBytes(bytes) {
 }
 
 function getHostDisplayName(host) {
+  if (!host) return "Host";
   const ips = host.ipAddresses || host.ips || [];
   const ip = ips.find((i) => !i.includes(":")) || ips[0];
-  if (ip) return ip;
-  return host.mac ? host.mac.slice(-8) : "Host";
+  const name = host.name || (host.id?.startsWith("host:h") ? host.id.replace("host:", "") : null);
+  if (name && ip) return `Host ${name} (${ip})`;
+  if (ip) return `Host: ${ip}`;
+  return host.mac ? `Host ${host.mac.slice(-8)}` : "Host";
 }
 
 function getSwitchDisplayName(dev) {
-  const name = dev.annotations?.datapathDescription || dev.annotations?.managementAddress;
-  if (name && !name.includes(":") && name.length < 15) return name;
-  const parts = dev.id.split(":");
+  if (!dev) return "Switch";
+  const desc = dev.annotations?.datapathDescription || dev.annotations?.bridgeName || dev.label;
+  if (desc && desc !== "None" && !desc.includes(":") && desc.length < 15) return desc;
+  const parts = String(dev.id || "").split(":");
   const last = parts[parts.length - 1];
   const num = parseInt(last, 16);
   if (!isNaN(num) && num < 100) return `s${num}`;
-  return last ? `sw-${last.slice(-4)}` : dev.id.slice(-8);
+  return last ? `sw-${last.slice(-4)}` : (dev.id ? dev.id.slice(-8) : "Switch");
 }
 
 export default function SliceTopology({
@@ -59,7 +63,7 @@ export default function SliceTopology({
   const edgesDatasetRef = useRef(null);
 
   const [selectedSliceId, setSelectedSliceId] = useState("ALL");
-  const [layoutMode, setLayoutMode] = useState("hierarchical"); // 'hierarchical' | 'organic'
+  const [layoutMode, setLayoutMode] = useState("organic"); // 'organic' (Force View) matches normal topology
   const [selectedNodeDetails, setSelectedNodeDetails] = useState(null);
 
   // Map hosts to their slice by MAC, IP, and Host ID
@@ -83,125 +87,18 @@ export default function SliceTopology({
     return (devices || []).filter((d) => d.available !== false && d.available !== "false");
   }, [devices]);
 
-  // Combine ONOS discovered hosts, hosts saved in slices, and standard leaf switch hosts
+  // Use unified host list provided by parent (slicingService / ONOS)
   const combinedHosts = useMemo(() => {
-    // If no switches are active in the network, no hosts can exist
     if (activeDevices.length === 0) return [];
-
-    const activeDevIds = new Set(activeDevices.map((d) => d.id));
-    const interSwitchPorts = new Set();
-    for (const l of links || []) {
-      if (l.src?.device && l.src?.port) interSwitchPorts.add(`${l.src.device}:${l.src.port}`);
-      if (l.dst?.device && l.dst?.port) interSwitchPorts.add(`${l.dst.device}:${l.dst.port}`);
-    }
-
-    const liveHosts = (hosts || []).filter((h) => {
-      const loc = (h.locations || []).find(
-        (l) => l?.elementId && l?.port && !interSwitchPorts.has(`${l.elementId}:${l.port}`)
-      ) || (h.location && !interSwitchPorts.has(`${h.location.elementId}:${h.location.port}`) ? h.location : null);
-      return loc && activeDevIds.has(loc.elementId);
-    });
-
-    const map = new Map();
-    const knownIps = new Set();
-    const knownLocations = new Set();
-
-    // 1. Add Live ONOS Hosts (edge ports only)
-    for (const h of liveHosts) {
-      const mac = (h.mac || h.id || "").toLowerCase();
-      const ip = ((h.ipAddresses || h.ips || [])[0] || "").toLowerCase();
-      const loc = (h.locations || []).find(
-        (l) => l?.elementId && l?.port && !interSwitchPorts.has(`${l.elementId}:${l.port}`)
-      ) || h.location;
-      const locKey = loc?.elementId && loc?.port ? `${loc.elementId}:${loc.port}` : null;
-      if (mac) map.set(mac, { ...h, deviceId: loc?.elementId, port: loc?.port });
-      if (ip) knownIps.add(ip);
-      if (locKey) knownLocations.add(locKey);
-    }
-
-    // 2. Add any hosts defined in slices that attach to active switches
-    for (const s of slices || []) {
-      for (const sh of s.hosts || []) {
-        if (sh.deviceId && !activeDevIds.has(sh.deviceId)) continue;
-        const mac = (sh.mac || sh.hostId || "").toLowerCase();
-        const ip = ((sh.ipAddresses || [])[0] || "").toLowerCase();
-        const locKey = sh.deviceId && sh.port ? `${sh.deviceId}:${sh.port}` : null;
-        const isKnown = (mac && map.has(mac)) || (ip && knownIps.has(ip)) || (locKey && knownLocations.has(locKey));
-
-        if (!isKnown && (!locKey || !interSwitchPorts.has(locKey))) {
-          if (mac) {
-            map.set(mac, {
-              id: sh.hostId || `${sh.mac}/None`,
-              mac: sh.mac,
-              ipAddresses: sh.ipAddresses || [],
-              deviceId: sh.deviceId,
-              port: sh.port,
-              locations: sh.deviceId ? [{ elementId: sh.deviceId, port: String(sh.port || "1") }] : [],
-              location: sh.deviceId ? { elementId: sh.deviceId, port: String(sh.port || "1") } : null,
-            });
-          }
-          if (ip) knownIps.add(ip);
-          if (locKey) knownLocations.add(locKey);
-        }
-      }
-    }
-
-    // 3. Complement with leaf switch standard hosts strictly for leaf switches (e.g. s2: h1, h2; s3: h3, h4)
-    if (activeDevices.length > 0) {
-      const getNum = (dev) => {
-        const name = getSwitchDisplayName(dev).toLowerCase();
-        const m = name.match(/s(\d+)/);
-        if (m) return parseInt(m[1], 10);
-        const parts = String(dev.id || "").split(":");
-        return parseInt(parts[parts.length - 1], 16) || 0;
-      };
-
-      const leafSwitches = activeDevices.filter((d) => {
-        if (activeDevices.length <= 1) return true;
-        const name = getSwitchDisplayName(d).toLowerCase();
-        if (name === "s1" || name.includes("core") || name.includes("spine")) return false;
-        const num = getNum(d);
-        return num !== 1;
-      });
-      const targetSwitches = leafSwitches.length > 0 ? leafSwitches : activeDevices;
-      const sortedSwitches = [...targetSwitches].sort((a, b) => getNum(a) - getNum(b));
-
-      sortedSwitches.forEach((sw, swIdx) => {
-        for (let i = 1; i <= 2; i++) {
-          const count = swIdx * 2 + i;
-          const mac = `00:00:00:00:00:0${count}`;
-          const ip = `10.0.0.${count}`;
-          const locKey = `${sw.id}:${i}`;
-          const isKnown =
-            (mac && map.has(mac.toLowerCase())) ||
-            (ip && knownIps.has(ip.toLowerCase())) ||
-            knownLocations.has(locKey);
-
-          if (!isKnown) {
-            map.set(mac.toLowerCase(), {
-              id: `host:h${count}`,
-              mac,
-              ipAddresses: [ip],
-              deviceId: sw.id,
-              port: String(i),
-              locations: [{ elementId: sw.id, port: String(i) }],
-              location: { elementId: sw.id, port: String(i) },
-            });
-            if (ip) knownIps.add(ip.toLowerCase());
-            knownLocations.add(locKey);
-          }
-        }
-      });
-    }
-
-    return Array.from(map.values());
-  }, [hosts, slices, activeDevices, links]);
+    if (hosts && hosts.length > 0) return hosts;
+    return [];
+  }, [hosts, activeDevices]);
 
   // Determine Core vs Leaf Switches for Hierarchical Levels
   const switchLevelMap = useMemo(() => {
     const map = new Map();
     for (const dev of activeDevices) {
-      const name = getSwitchDisplayName(dev).toLowerCase();
+      const name = (dev.annotations?.datapathDescription || dev.label || "").toLowerCase();
       const parts = String(dev.id || "").split(":");
       const num = parseInt(parts[parts.length - 1], 16);
       if (name === "s1" || name.includes("core") || name.includes("spine") || num === 1) {
@@ -223,33 +120,34 @@ export default function SliceTopology({
     const nodes = [];
     const edges = [];
     const edgeIdSet = new Set();
+    const activeDevIds = new Set(activeDevices.map((d) => d.id));
 
-    // 1. Add Switches (Device Switch Image)
+    // 1. Add Switches (matching normal topology appearance)
     for (const dev of activeDevices) {
       const devName = getSwitchDisplayName(dev);
-      const level = switchLevelMap.get(dev.id) ?? 1;
-      const isCore = level === 0;
+      const isCore = (switchLevelMap.get(dev.id) ?? 1) === 0;
 
       nodes.push({
         id: dev.id,
-        label: isCore ? `${devName.toUpperCase()} [Core]` : `Switch ${devName}`,
+        label: devName,
+        group: "switch",
         shape: "image",
         image: "/assets/images/Device_switch_3062_unknown_64.png",
-        size: isCore ? 36 : 30,
-        level: layoutMode === "hierarchical" ? level : undefined,
+        size: 30,
+        level: layoutMode === "hierarchical" ? (isCore ? 0 : 1) : undefined,
         font: {
-          color: isCore ? "#c7d2fe" : "#e4e4e7",
-          background: isCore ? "rgba(30, 27, 75, 0.9)" : "rgba(24, 24, 27, 0.9)",
+          color: "#38bdf8",
+          background: "rgba(15, 23, 42, 0.9)",
           face: "Inter, system-ui, sans-serif",
-          size: isCore ? 12 : 11,
+          size: 12,
+          strokeWidth: 2,
+          strokeColor: "#09090b",
           bold: true,
-          strokeWidth: 1,
-          strokeColor: isCore ? "#818cf8" : "#52525b",
         },
         shadow: {
           enabled: true,
-          color: isCore ? "rgba(99, 102, 241, 0.5)" : "rgba(0, 0, 0, 0.6)",
-          size: isCore ? 16 : 8,
+          color: "rgba(0, 0, 0, 0.6)",
+          size: 8,
           x: 0,
           y: 4,
         },
@@ -257,11 +155,12 @@ export default function SliceTopology({
       });
     }
 
-    // 2. Add Inter-Switch Links
-    for (const link of links) {
-      const srcDev = link.src?.device;
-      const dstDev = link.dst?.device;
-      if (!srcDev || !dstDev) continue;
+    // 2. Add Inter-Switch Links (discovered links + trunk links)
+    for (const link of links || []) {
+      const srcDev = link.src?.device || link.from;
+      const dstDev = link.dst?.device || link.to;
+      if (!srcDev || !dstDev || srcDev === dstDev) continue;
+      if (!activeDevIds.has(srcDev) || !activeDevIds.has(dstDev)) continue;
 
       const linkKey = [srcDev, dstDev].sort().join("<->");
       if (edgeIdSet.has(linkKey)) continue;
@@ -271,16 +170,14 @@ export default function SliceTopology({
         id: linkKey,
         from: srcDev,
         to: dstDev,
+        title: link.title || `Trunk Link: <b>${getSwitchDisplayName({ id: srcDev })}</b> &harr; <b>${getSwitchDisplayName({ id: dstDev })}</b>`,
         color: {
           color: "#6366f1",
           highlight: "#818cf8",
           hover: "#a5b4fc",
         },
-        width: 3.5,
-        smooth: {
-          type: "cubicBezier",
-          roundness: 0.2,
-        },
+        width: 2.5,
+        smooth: false,
         arrows: { to: { enabled: false }, from: { enabled: false } },
         shadow: {
           enabled: true,
@@ -291,56 +188,83 @@ export default function SliceTopology({
       });
     }
 
-    // 3. Add Hosts (Device PC Image) & Host-to-Switch Links
+    // Fallback: Ensure all leaf switches have trunk link to root switch s1
+    const s1Id = activeDevices.find((d) => (switchLevelMap.get(d.id) ?? 1) === 0)?.id;
+    if (s1Id && activeDevices.length > 1) {
+      for (const dev of activeDevices) {
+        if (dev.id === s1Id) continue;
+        const linkKey = [s1Id, dev.id].sort().join("<->");
+        if (!edgeIdSet.has(linkKey)) {
+          edgeIdSet.add(linkKey);
+          edges.push({
+            id: linkKey,
+            from: s1Id,
+            to: dev.id,
+            title: `Trunk Link: <b>${getSwitchDisplayName({ id: s1Id })}</b> &harr; <b>${getSwitchDisplayName(dev)}</b>`,
+            color: {
+              color: "#6366f1",
+              highlight: "#818cf8",
+              hover: "#a5b4fc",
+            },
+            width: 2.5,
+            smooth: false,
+            arrows: { to: { enabled: false }, from: { enabled: false } },
+            shadow: {
+              enabled: true,
+              color: "rgba(99, 102, 241, 0.4)",
+              size: 6,
+            },
+            data: { type: "inter-switch-trunk" },
+          });
+        }
+      }
+    }
+
+    // 3. Add Hosts & Host-to-Switch Links
     for (const host of combinedHosts) {
       const mac = (host.mac || "").toLowerCase();
-      const ip = getHostDisplayName(host);
+      const ip = (host.ipAddresses || host.ips || [])[0] || (host.mac ? host.mac.slice(-8) : "Host");
       const assignedSlice = hostSliceMap.get(mac) || hostSliceMap.get(ip.toLowerCase());
       const isVisibleInFilter =
         selectedSliceId === "ALL" || (assignedSlice && assignedSlice.id === selectedSliceId);
 
-      const sliceColor = assignedSlice?.color || "#71717a";
+      const sliceColor = assignedSlice?.color || "#6366f1";
       const isInSlice = Boolean(assignedSlice);
 
-      // Identify connected switch (prioritizing true edge host attachment over trunk ports)
-      const edgeLoc = (host.locations || []).find(
-        (l) => l?.elementId && l?.port && !links.some((lk) => (lk.src?.device === l.elementId && String(lk.src?.port) === String(l.port)) || (lk.dst?.device === l.elementId && String(lk.dst?.port) === String(l.port)))
-      );
+      // Identify connected switch
       const targetSwitchId =
         host.deviceId ||
-        edgeLoc?.elementId ||
         host.location?.elementId ||
         host.locations?.[0]?.elementId ||
         (activeDevices.length > 0 ? activeDevices[activeDevices.length - 1].id : null);
-      const portNumber = host.port || edgeLoc?.port || host.location?.port || host.locations?.[0]?.port || "1";
+      const portNumber = host.port || host.location?.port || host.locations?.[0]?.port || "1";
 
-      const parentLevel = targetSwitchId ? (switchLevelMap.get(targetSwitchId) ?? 1) : 1;
-
-      // Short, clean label: IP + VLAN tag (prevents horizontal bloat)
+      const hostBaseName = getHostDisplayName(host);
       const hostLabel = isInSlice
-        ? `${ip}\nVLAN ${assignedSlice.vlanId}`
-        : `${ip}\nDefault`;
+        ? `${hostBaseName}\n[VLAN ${assignedSlice.vlanId}]`
+        : hostBaseName;
 
-      const hostNodeId = host.id || mac || `host-${ip}`;
+      const hostNodeId = host.id || `host:${mac || ip}`;
 
       nodes.push({
         id: hostNodeId,
         label: hostLabel,
+        group: "host",
         shape: "image",
         image: "/assets/images/Device_pc_3045_default_64.png",
         size: 28,
-        level: layoutMode === "hierarchical" ? parentLevel + 1 : undefined,
+        level: layoutMode === "hierarchical" ? 2 : undefined,
         font: {
-          color: isInSlice ? "#ffffff" : "#a1a1aa",
-          background: isInSlice ? "rgba(24, 24, 27, 0.92)" : "rgba(18, 18, 20, 0.9)",
+          color: isInSlice ? "#ffffff" : "#a7f3d0",
+          background: isInSlice ? "rgba(24, 24, 27, 0.92)" : "rgba(6, 78, 59, 0.9)",
           face: "Inter, system-ui, sans-serif",
           size: 11,
           bold: isInSlice,
-          strokeWidth: 1.5,
-          strokeColor: isInSlice ? sliceColor : "#3f3f46",
+          strokeWidth: 2,
+          strokeColor: isInSlice ? sliceColor : "#09090b",
           multi: true,
         },
-        opacity: isVisibleInFilter ? 1 : 0.25,
+        opacity: isVisibleInFilter ? 1 : 0.2,
         shadow: isInSlice
           ? {
               enabled: true,
@@ -368,16 +292,16 @@ export default function SliceTopology({
           id: hostLinkId,
           from: hostNodeId,
           to: targetSwitchId,
+          title: isInSlice
+            ? `${hostBaseName} ↔ ${getSwitchDisplayName({ id: targetSwitchId })} [${assignedSlice.name} • VLAN ${assignedSlice.vlanId}]`
+            : `${hostBaseName} ↔ ${getSwitchDisplayName({ id: targetSwitchId })} (Port ${portNumber})`,
           color: {
-            color: isInSlice ? sliceColor : "#3f3f46",
+            color: isInSlice ? sliceColor : "#10b981",
             opacity: isVisibleInFilter ? 1 : 0.2,
           },
-          width: isInSlice ? 2.5 : 1.5,
-          dashes: !isInSlice,
-          smooth: {
-            type: "cubicBezier",
-            roundness: 0.15,
-          },
+          width: isInSlice ? 2.5 : 2,
+          dashes: false,
+          smooth: false,
           data: { type: "host-link", host, port: portNumber },
         });
       }
@@ -424,15 +348,33 @@ export default function SliceTopology({
     const isHierarchical = layoutMode === "hierarchical";
 
     const options = {
+      width: "100%",
+      height: "480px",
+      nodes: {
+        size: 30,
+        font: {
+          face: "Inter, system-ui, sans-serif",
+          size: 12,
+        },
+      },
+      edges: {
+        length: 220,
+        color: {
+          color: "#3f3f46",
+          highlight: "#6366f1",
+          hover: "#10b981",
+        },
+        smooth: false,
+      },
       layout: isHierarchical
         ? {
             hierarchical: {
               enabled: true,
               direction: "UD", // Top to Bottom (Spine -> Leaf -> Hosts)
-              sortMethod: "directed",
-              levelSeparation: 150,
-              nodeSpacing: 280,
-              treeSpacing: 300,
+              sortMethod: "hubsize",
+              levelSeparation: 140,
+              nodeSpacing: 220,
+              treeSpacing: 260,
               blockShifting: true,
               edgeMinimization: true,
               parentCentralization: true,
@@ -440,7 +382,6 @@ export default function SliceTopology({
           }
         : {
             hierarchical: { enabled: false },
-            improvedLayout: true,
           },
       physics: isHierarchical
         ? {
@@ -448,14 +389,10 @@ export default function SliceTopology({
           }
         : {
             enabled: true,
-            solver: "forceAtlas2Based",
-            forceAtlas2Based: {
-              gravitationalConstant: -100,
-              centralGravity: 0.012,
-              springLength: 160,
-              springConstant: 0.06,
-              damping: 0.9,
-              avoidOverlap: 1,
+            barnesHut: {
+              gravitationalConstant: -8000,
+              centralGravity: 0.3,
+              springLength: 150,
             },
             stabilization: { iterations: 100 },
           },
