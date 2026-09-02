@@ -267,4 +267,71 @@ describe("Slicing Service - Topology Info & Multi-Slice Host Discovery", () => {
     expect(dscpFlow).toBeDefined();
     expect(dscpFlow[0]).toBe("of:0000000000000002");
   });
+
+  it("detects already-sliced hosts by IP, ID, or location even when live ONOS MAC differs from synthetic MAC", async () => {
+    // Saved slice was created with synthetic MAC
+    saveSlices([
+      {
+        id: "slice-1",
+        name: "eMBB Slice",
+        bandwidth: 5000,
+        hosts: [
+          { mac: "00:00:00:00:00:01", ipAddresses: ["10.0.0.1"], deviceId: "of:0000000000000002", port: "1" },
+          { mac: "00:00:00:00:00:02", ipAddresses: ["10.0.0.2"], deviceId: "of:0000000000000002", port: "2" },
+        ],
+      },
+    ]);
+
+    // Live ONOS discovered host has a real random Mininet MAC (FA:3F:CA:F6:0E:1F)
+    const liveHostH1 = {
+      id: "FA:3F:CA:F6:0E:1F/None",
+      mac: "FA:3F:CA:F6:0E:1F",
+      ipAddresses: ["10.0.0.1"],
+      locations: [{ elementId: "of:0000000000000002", port: "1" }],
+    };
+
+    // Passing host object: detects that 10.0.0.1 is already in "eMBB Slice"
+    const assignedSlice = isHostInAnySlice(liveHostH1);
+    expect(assignedSlice).not.toBeNull();
+    expect(assignedSlice?.name).toBe("eMBB Slice");
+
+    // Passing IP string directly
+    expect(isHostInAnySlice("10.0.0.1")?.name).toBe("eMBB Slice");
+
+    // Live host h3 (not in any slice) returns null
+    const liveHostH3 = {
+      id: "62:FC:90:3E:41:E1/None",
+      mac: "62:FC:90:3E:41:E1",
+      ipAddresses: ["10.0.0.3"],
+      locations: [{ elementId: "of:0000000000000003", port: "1" }],
+    };
+    expect(isHostInAnySlice(liveHostH3)).toBeNull();
+  });
+
+  it("automatically synchronizes stored slice host MACs when getTopologyInfo discovers live hosts", async () => {
+    saveSlices([
+      {
+        id: "slice-1",
+        name: "Broadband Slice",
+        bandwidth: 5000,
+        hosts: [
+          { mac: "00:00:00:00:00:01", ipAddresses: ["10.0.0.1"], deviceId: "of:0000000000000002", port: "1" },
+        ],
+      },
+    ]);
+
+    apiController.getHosts.mockResolvedValueOnce([
+      {
+        id: "FA:3F:CA:F6:0E:1F/None",
+        mac: "FA:3F:CA:F6:0E:1F",
+        ipAddresses: ["10.0.0.1"],
+        locations: [{ elementId: "of:0000000000000002", port: "1" }],
+      },
+    ]);
+
+    await getTopologyInfo();
+
+    const updatedSlices = loadSlices();
+    expect(updatedSlices[0].hosts[0].mac).toBe("FA:3F:CA:F6:0E:1F");
+  });
 });

@@ -18,6 +18,9 @@ import {
   LayoutGrid,
   Sparkles,
   Server,
+  Filter,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 
 function formatBytes(bytes) {
@@ -63,8 +66,21 @@ export default function SliceTopology({
   const edgesDatasetRef = useRef(null);
 
   const [selectedSliceId, setSelectedSliceId] = useState("ALL");
-  const [layoutMode, setLayoutMode] = useState("organic"); // 'organic' (Force View) matches normal topology
+  const [layoutMode, setLayoutMode] = useState("hierarchical"); // 'hierarchical' (Tiered View) is the default
   const [selectedNodeDetails, setSelectedNodeDetails] = useState(null);
+  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // Close slice filter dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsFilterDropdownOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", handleClickOutside);
+    return () => document.removeEventListener("pointerdown", handleClickOutside);
+  }, []);
 
   // Map hosts to their slice by MAC, IP, and Host ID
   const hostSliceMap = useMemo(() => {
@@ -462,7 +478,7 @@ export default function SliceTopology({
         background: "linear-gradient(180deg, rgba(24, 24, 27, 0.7) 0%, rgba(9, 9, 11, 0.9) 100%)",
         border: "1px solid var(--theme-card-border)",
         borderRadius: 20,
-        overflow: "hidden",
+        overflow: "visible",
         display: "flex",
         flexDirection: "column",
         marginBottom: 24,
@@ -480,8 +496,12 @@ export default function SliceTopology({
           justifyContent: "space-between",
           flexWrap: "wrap",
           gap: 14,
-          background: "rgba(18, 18, 20, 0.6)",
+          background: "rgba(18, 18, 20, 0.85)",
           backdropFilter: "blur(10px)",
+          borderTopLeftRadius: 20,
+          borderTopRightRadius: 20,
+          position: "relative",
+          zIndex: 60,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -509,77 +529,64 @@ export default function SliceTopology({
           </div>
         </div>
 
-        {/* Slice Filter Pills */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <button
-            onClick={() => setSelectedSliceId("ALL")}
-            style={{
-              padding: "6px 14px",
-              borderRadius: 9,
-              fontSize: 11,
-              fontWeight: 700,
-              cursor: "pointer",
-              border: selectedSliceId === "ALL" ? "1px solid #6366f1" : "1px solid var(--theme-card-border)",
-              background: selectedSliceId === "ALL" ? "rgba(99, 102, 241, 0.2)" : "rgba(24, 24, 27, 0.6)",
-              color: selectedSliceId === "ALL" ? "#a5b4fc" : "var(--theme-text-muted)",
-              boxShadow: selectedSliceId === "ALL" ? "0 0 15px rgba(99, 102, 241, 0.3)" : "none",
-              transition: "all 0.15s ease",
-            }}
-          >
-            All Slices ({slices.length})
-          </button>
-
-          {slices.map((slice) => {
-            const isSelected = selectedSliceId === slice.id;
-            return (
-              <button
-                key={slice.id}
-                onClick={() => setSelectedSliceId(isSelected ? "ALL" : slice.id)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  padding: "6px 14px",
-                  borderRadius: 9,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  border: `1px solid ${isSelected ? slice.color : `${slice.color}35`}`,
-                  background: isSelected ? `${slice.color}25` : `${slice.color}10`,
-                  color: isSelected ? "#ffffff" : slice.color,
-                  boxShadow: isSelected ? `0 0 15px ${slice.color}40` : "none",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: slice.color }} />
-                {slice.name} <span style={{ opacity: 0.7, fontSize: 10 }}>VLAN {slice.vlanId}</span>
-              </button>
-            );
-          })}
-        </div>
-
         {/* View Layout & Actions */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button
-            onClick={() => setLayoutMode(layoutMode === "hierarchical" ? "organic" : "hierarchical")}
-            title={layoutMode === "hierarchical" ? "Switch to Organic Layout" : "Switch to Hierarchical 3-Tier Layout"}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* Tiered View vs Forced View Segmented Switcher */}
+          <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 6,
-              padding: "6px 12px",
-              borderRadius: 8,
+              background: "rgba(24, 24, 27, 0.85)",
               border: "1px solid var(--theme-card-border)",
-              background: "rgba(24, 24, 27, 0.8)",
-              color: "var(--color-zinc-50)",
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: "pointer",
+              borderRadius: 10,
+              padding: 3,
+              gap: 2,
             }}
           >
-            <LayoutGrid size={13} color="#818cf8" />
-            <span>{layoutMode === "hierarchical" ? "Tiered View" : "Force View"}</span>
-          </button>
+            <button
+              onClick={() => setLayoutMode("hierarchical")}
+              title="Tiered View (Spine -> Leaf -> Hosts 3-Tier Hierarchy)"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "5px 12px",
+                borderRadius: 7,
+                fontSize: 11,
+                fontWeight: layoutMode === "hierarchical" ? 700 : 500,
+                cursor: "pointer",
+                border: "none",
+                background: layoutMode === "hierarchical" ? "rgba(99, 102, 241, 0.3)" : "transparent",
+                color: layoutMode === "hierarchical" ? "#c7d2fe" : "var(--theme-text-muted)",
+                boxShadow: layoutMode === "hierarchical" ? "0 0 10px rgba(99, 102, 241, 0.25)" : "none",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <LayoutGrid size={12} color={layoutMode === "hierarchical" ? "#818cf8" : "currentColor"} />
+              <span>Tiered View</span>
+            </button>
+            <button
+              onClick={() => setLayoutMode("forced")}
+              title="Forced View (BarnesHut Force-Directed Simulation)"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "5px 12px",
+                borderRadius: 7,
+                fontSize: 11,
+                fontWeight: layoutMode === "forced" ? 700 : 500,
+                cursor: "pointer",
+                border: "none",
+                background: layoutMode === "forced" ? "rgba(99, 102, 241, 0.3)" : "transparent",
+                color: layoutMode === "forced" ? "#c7d2fe" : "var(--theme-text-muted)",
+                boxShadow: layoutMode === "forced" ? "0 0 10px rgba(99, 102, 241, 0.25)" : "none",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <span>Forced View</span>
+            </button>
+          </div>
 
           <button
             onClick={handleZoomIn}
@@ -660,7 +667,7 @@ export default function SliceTopology({
       </div>
 
       {/* Vis Network Canvas Container */}
-      <div style={{ position: "relative", width: "100%", height: 480 }}>
+      <div style={{ position: "relative", width: "100%", height: 480, borderBottomLeftRadius: 20, borderBottomRightRadius: 20, overflow: "hidden" }}>
         {/* Subtle grid background */}
         <div
           style={{
@@ -671,6 +678,193 @@ export default function SliceTopology({
             pointerEvents: "none",
           }}
         />
+
+        {/* Floating Slice Filter Dropdown Overlay (Inside Topology Canvas) */}
+        <div
+          ref={dropdownRef}
+          style={{
+            position: "absolute",
+            top: 14,
+            left: 14,
+            zIndex: 25,
+          }}
+        >
+          {(() => {
+            const activeSlice = slices.find((s) => s.id === selectedSliceId);
+            return (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsFilterDropdownOpen((prev) => !prev)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 9,
+                    padding: "7px 14px",
+                    borderRadius: 10,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    border: activeSlice
+                      ? `1.5px solid ${activeSlice.color}`
+                      : "1px solid rgba(255, 255, 255, 0.18)",
+                    background: activeSlice
+                      ? "rgba(18, 18, 22, 0.92)"
+                      : "rgba(18, 18, 22, 0.85)",
+                    backdropFilter: "blur(12px)",
+                    color: "#ffffff",
+                    boxShadow: activeSlice
+                      ? `0 8px 24px rgba(0, 0, 0, 0.6), 0 0 12px ${activeSlice.color}35`
+                      : "0 8px 24px rgba(0, 0, 0, 0.6)",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <Filter size={13} color={activeSlice ? activeSlice.color : "#818cf8"} />
+                  <span style={{ color: "var(--theme-text-muted)", fontWeight: 500, fontSize: 11 }}>Slice:</span>
+                  {activeSlice ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: activeSlice.color, boxShadow: `0 0 6px ${activeSlice.color}` }} />
+                      <span style={{ color: "#ffffff", fontWeight: 700 }}>{activeSlice.name}</span>
+                      <span style={{ fontSize: 10, padding: "1px 5px", borderRadius: 4, background: `${activeSlice.color}30`, color: activeSlice.color, fontWeight: 700 }}>
+                        VLAN {activeSlice.vlanId}
+                      </span>
+                    </div>
+                  ) : (
+                    <span style={{ color: "#ffffff", fontWeight: 700 }}>All Slices ({slices.length})</span>
+                  )}
+                  <ChevronDown
+                    size={14}
+                    color="#a5b4fc"
+                    style={{
+                      transform: isFilterDropdownOpen ? "rotate(180deg)" : "rotate(0deg)",
+                      transition: "transform 0.2s ease",
+                      marginLeft: 2,
+                    }}
+                  />
+                </button>
+
+                <AnimatePresence>
+                  {isFilterDropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                      transition={{ duration: 0.15 }}
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 6px)",
+                        left: 0,
+                        minWidth: 260,
+                        background: "#18181b",
+                        border: "1.5px solid #4f46e5",
+                        borderRadius: 12,
+                        padding: 7,
+                        boxShadow: "0 20px 45px rgba(0, 0, 0, 0.9), 0 0 20px rgba(99, 102, 241, 0.25)",
+                        zIndex: 9999,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 3,
+                        pointerEvents: "auto",
+                      }}
+                    >
+                      <div style={{ padding: "4px 8px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#818cf8" }}>
+                        Filter Topology by Slice
+                      </div>
+
+                      <button
+                        type="button"
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          setSelectedSliceId("ALL");
+                          setIsFilterDropdownOpen(false);
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedSliceId("ALL");
+                          setIsFilterDropdownOpen(false);
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "9px 12px",
+                          borderRadius: 8,
+                          fontSize: 12,
+                          fontWeight: selectedSliceId === "ALL" ? 700 : 500,
+                          border: selectedSliceId === "ALL" ? "1px solid rgba(99, 102, 241, 0.6)" : "1px solid transparent",
+                          background: selectedSliceId === "ALL" ? "rgba(99, 102, 241, 0.25)" : "rgba(39, 39, 42, 0.5)",
+                          color: selectedSliceId === "ALL" ? "#ffffff" : "var(--color-zinc-300)",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <Layers size={14} color="#818cf8" />
+                          <span>All Slices</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 11, color: "var(--theme-text-muted)" }}>({slices.length})</span>
+                          {selectedSliceId === "ALL" && <Check size={14} color="#818cf8" />}
+                        </div>
+                      </button>
+
+                      {slices.length > 0 && (
+                        <div style={{ height: 1, background: "rgba(255, 255, 255, 0.1)", margin: "3px 0" }} />
+                      )}
+
+                      {slices.map((slice) => {
+                        const isSelected = selectedSliceId === slice.id;
+                        return (
+                          <button
+                            key={slice.id}
+                            type="button"
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              setSelectedSliceId(slice.id);
+                              setIsFilterDropdownOpen(false);
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedSliceId(slice.id);
+                              setIsFilterDropdownOpen(false);
+                            }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              padding: "9px 12px",
+                              borderRadius: 8,
+                              fontSize: 12,
+                              fontWeight: isSelected ? 700 : 500,
+                              border: isSelected ? `1px solid ${slice.color}` : "1px solid transparent",
+                              background: isSelected ? `${slice.color}25` : "rgba(39, 39, 42, 0.5)",
+                              color: isSelected ? "#ffffff" : "var(--color-zinc-300)",
+                              cursor: "pointer",
+                              textAlign: "left",
+                              transition: "all 0.15s ease",
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: slice.color, flexShrink: 0, boxShadow: `0 0 6px ${slice.color}` }} />
+                              <span style={{ color: isSelected ? "#ffffff" : "var(--color-zinc-200)" }}>{slice.name}</span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, color: slice.color, background: `${slice.color}20`, padding: "2px 6px", borderRadius: 4 }}>
+                                VLAN {slice.vlanId}
+                              </span>
+                              {isSelected && <Check size={14} color={slice.color} />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </>
+            );
+          })()}
+        </div>
 
         <div ref={containerRef} style={{ width: "100%", height: "100%", background: "transparent" }} />
 

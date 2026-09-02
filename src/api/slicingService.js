@@ -292,6 +292,30 @@ export async function getTopologyInfo() {
     });
   }
 
+  // 1b. Automatically synchronize stored slice hosts when ONOS discovers their real live MACs
+  const storedSlices = loadSlices();
+  let slicesModified = false;
+  for (const s of storedSlices) {
+    for (const sh of s.hosts || []) {
+      const match = liveHosts.find((lh) => {
+        const lhIps = (lh.ipAddresses || []).map((i) => String(i).toLowerCase());
+        const shIps = (sh.ipAddresses || []).map((i) => String(i).toLowerCase());
+        const sameIp = lhIps.length > 0 && shIps.length > 0 && lhIps.some((ip) => shIps.includes(ip));
+        const lhLoc = getHostLocation(lh, links);
+        const sameLoc = sh.deviceId && sh.port && lhLoc && lhLoc.deviceId === sh.deviceId && String(lhLoc.port) === String(sh.port);
+        return sameIp || sameLoc;
+      });
+      if (match && match.mac && match.mac.toLowerCase() !== (sh.mac || "").toLowerCase()) {
+        sh.mac = match.mac;
+        sh.hostId = match.id || `${match.mac}/None`;
+        slicesModified = true;
+      }
+    }
+  }
+  if (slicesModified) {
+    saveSlices(storedSlices);
+  }
+
   // 2. Add any hosts defined in saved slices (if not already captured from live ONOS)
   const slices = loadSlices();
   for (const s of slices) {
@@ -590,7 +614,15 @@ export async function createSlice(sliceConfig) {
       }
     }
 
+    // Helper: detect if MAC is synthetic dummy fallback
+    const isSyntheticMac = (m) => !m || String(m).toLowerCase().startsWith("00:00:00:00:00:");
+
     // Install strict Isolation Boundary (Priority 39000 Drop Rule) on ingress switch
+    const dropCriteria = [{ type: "IN_PORT", port: Number(port) }];
+    if (!isSyntheticMac(mac)) {
+      dropCriteria.push({ type: "ETH_SRC", mac });
+    }
+
     const dropFlow = {
       priority: 39000,
       timeout: 0,
@@ -599,10 +631,7 @@ export async function createSlice(sliceConfig) {
       tableId: 0,
       treatment: { instructions: [] },
       selector: {
-        criteria: [
-          { type: "IN_PORT", port: Number(port) },
-          { type: "ETH_SRC", mac },
-        ],
+        criteria: dropCriteria,
       },
     };
 
@@ -660,6 +689,14 @@ export async function createSlice(sliceConfig) {
 
         // 1. If low-latency / URLLC slice: Install Priority 41000 Flow matching DSCP 46 -> Queue 0 (60 Mbps guaranteed)
         if (isLowLatency) {
+          const dscpCriteria = [
+            { type: "ETH_TYPE", ethType: 2048 },
+            { type: "IP_DSCP", ipDscp: 46 },
+            { type: "IN_PORT", port: Number(hop.inPort) },
+          ];
+          if (hostA.mac) dscpCriteria.push({ type: "ETH_SRC", mac: hostA.mac });
+          if (hostB.mac) dscpCriteria.push({ type: "ETH_DST", mac: hostB.mac });
+
           const dscp46Flow = {
             priority: 41000,
             timeout: 0,
@@ -673,13 +710,7 @@ export async function createSlice(sliceConfig) {
               ],
             },
             selector: {
-              criteria: [
-                { type: "ETH_TYPE", ethType: 2048 },
-                { type: "IP_DSCP", ipDscp: 46 },
-                { type: "IN_PORT", port: Number(hop.inPort) },
-                { type: "ETH_SRC", mac: hostA.mac },
-                { type: "ETH_DST", mac: hostB.mac },
-              ],
+              criteria: dscpCriteria,
             },
           };
 
@@ -703,6 +734,16 @@ export async function createSlice(sliceConfig) {
         instructions.push({ type: "OUTPUT", port: String(hop.outPort) });
 
         // Unicast traffic flow (both IPv4 and unicast ARP replies)
+        const isSyntheticA = !hostA.mac || String(hostA.mac).toLowerCase().startsWith("00:00:00:00:00:");
+        const isSyntheticB = !hostB.mac || String(hostB.mac).toLowerCase().startsWith("00:00:00:00:00:");
+        const unicastCriteria = [{ type: "IN_PORT", port: Number(hop.inPort) }];
+        if (!isSyntheticA) {
+          unicastCriteria.push({ type: "ETH_SRC", mac: hostA.mac });
+        }
+        if (!isSyntheticB) {
+          unicastCriteria.push({ type: "ETH_DST", mac: hostB.mac });
+        }
+
         const unicastFlow = {
           priority: 40000,
           timeout: 0,
@@ -711,11 +752,7 @@ export async function createSlice(sliceConfig) {
           tableId: 0,
           treatment: { instructions },
           selector: {
-            criteria: [
-              { type: "IN_PORT", port: Number(hop.inPort) },
-              { type: "ETH_SRC", mac: hostA.mac },
-              { type: "ETH_DST", mac: hostB.mac },
-            ],
+            criteria: unicastCriteria,
           },
         };
 
@@ -728,7 +765,7 @@ export async function createSlice(sliceConfig) {
         }
 
         // Record ARP broadcast output requirement for this switch + inPort + hostA.mac
-        const arpKey = `${hop.deviceId}__${hop.inPort}__${hostA.mac.toLowerCase()}`;
+        const arpKey = `${hop.deviceId}__${hop.inPort}__${(hostA.mac || "edge").toLowerCase()}`;
         if (!arpRuleMap.has(arpKey)) {
           arpRuleMap.set(arpKey, {
             deviceId: hop.deviceId,
@@ -749,6 +786,15 @@ export async function createSlice(sliceConfig) {
       port: String(p),
     }));
 
+    const isSynthetic = !rule.mac || String(rule.mac).toLowerCase().startsWith("00:00:00:00:00:");
+    const arpCriteria = [
+      { type: "IN_PORT", port: Number(rule.inPort) },
+      { type: "ETH_TYPE", ethType: 2054 },
+    ];
+    if (!isSynthetic) {
+      arpCriteria.push({ type: "ETH_SRC", mac: rule.mac });
+    }
+
     const arpFlow = {
       priority: 40000,
       timeout: 0,
@@ -757,11 +803,7 @@ export async function createSlice(sliceConfig) {
       tableId: 0,
       treatment: { instructions },
       selector: {
-        criteria: [
-          { type: "IN_PORT", port: Number(rule.inPort) },
-          { type: "ETH_TYPE", ethType: 2054 },
-          { type: "ETH_SRC", mac: rule.mac },
-        ],
+        criteria: arpCriteria,
       },
     };
 
@@ -876,14 +918,60 @@ export async function deleteSlice(sliceId) {
 
 /**
  * Check if a host is already assigned to a slice.
+ * Accepts a host object or a string (MAC, IP, Host ID).
  */
-export function isHostInAnySlice(hostMac) {
-  if (!hostMac) return null;
-  const target = hostMac.toLowerCase();
+export function isHostInAnySlice(hostOrIdentifier) {
+  if (!hostOrIdentifier) return null;
   const slices = loadSlices();
+
+  let targetMac = null;
+  let targetIps = [];
+  let targetId = null;
+  let targetLoc = null;
+
+  if (typeof hostOrIdentifier === "string") {
+    const val = hostOrIdentifier.toLowerCase();
+    if (val.includes(":") && val.length === 17) {
+      targetMac = val;
+    } else if (val.includes(".") && !val.includes("/")) {
+      targetIps.push(val);
+    } else {
+      targetId = val;
+      targetMac = val;
+      targetIps.push(val);
+    }
+  } else if (typeof hostOrIdentifier === "object") {
+    targetMac = (hostOrIdentifier.mac || "").toLowerCase();
+    targetId = (hostOrIdentifier.id || hostOrIdentifier.hostId || "").toLowerCase();
+    const ips = hostOrIdentifier.ipAddresses || hostOrIdentifier.ips || (hostOrIdentifier.ip ? [hostOrIdentifier.ip] : []);
+    targetIps = ips.map((ip) => String(ip).toLowerCase());
+    const devId = hostOrIdentifier.deviceId || hostOrIdentifier.location?.elementId || hostOrIdentifier.locations?.[0]?.elementId;
+    const port = hostOrIdentifier.port || hostOrIdentifier.location?.port || hostOrIdentifier.locations?.[0]?.port;
+    if (devId && port) {
+      targetLoc = `${devId}:${port}`;
+    }
+  }
+
   for (const slice of slices) {
     for (const host of slice.hosts || []) {
-      if ((host.mac || "").toLowerCase() === target) return slice;
+      const hMac = (host.mac || "").toLowerCase();
+      const hId = (host.id || host.hostId || "").toLowerCase();
+      const hIps = (host.ipAddresses || host.ips || (host.ip ? [host.ip] : [])).map((ip) => String(ip).toLowerCase());
+      const devId = host.deviceId || host.location?.elementId || host.locations?.[0]?.elementId;
+      const port = host.port || host.location?.port || host.locations?.[0]?.port;
+      const hLoc = devId && port ? `${devId}:${port}` : null;
+
+      // 1. Direct MAC match
+      if (targetMac && hMac && targetMac === hMac) return slice;
+
+      // 2. IP address match (e.g. 10.0.0.1)
+      if (targetIps.length > 0 && hIps.some((ip) => targetIps.includes(ip))) return slice;
+
+      // 3. Exact host ID match
+      if (targetId && hId && (targetId === hId || targetId === `host:${hId}` || `host:${targetId}` === hId)) return slice;
+
+      // 4. Physical attachment match (same switch device & edge port)
+      if (targetLoc && hLoc && targetLoc === hLoc) return slice;
     }
   }
   return null;

@@ -446,7 +446,7 @@ function CreateSliceModal({
   };
 
   const selectAllHosts = () => {
-    const available = onosHosts.filter((h) => !isHostInAnySlice(h.mac));
+    const available = onosHosts.filter((h) => !isHostInAnySlice(h));
     if (form.selectedHostIds.length === available.length) {
       setForm((prev) => ({ ...prev, selectedHostIds: [] }));
     } else {
@@ -653,7 +653,7 @@ function CreateSliceModal({
               {onosHosts.length > 0 && (
                 <button type="button" onClick={selectAllHosts}
                   style={{ background: "none", border: "none", color: "#6366f1", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                  {form.selectedHostIds.length === onosHosts.filter((h) => !isHostInAnySlice(h.mac)).length ? "Deselect All" : "Select All Available"}
+                  {form.selectedHostIds.length === onosHosts.filter((h) => !isHostInAnySlice(h)).length ? "Deselect All" : "Select All Available"}
                 </button>
               )}
             </div>
@@ -675,7 +675,7 @@ function CreateSliceModal({
                 {onosHosts.map((host) => {
                   const hostId = host.id || `${host.mac}/None`;
                   const isSelected = form.selectedHostIds.includes(hostId);
-                  const existingSlice = isHostInAnySlice(host.mac);
+                  const existingSlice = isHostInAnySlice(host);
                   const isUnavailable = !!existingSlice;
                   const ips = host.ipAddresses || [];
                   const ip = ips.find((i) => !i.includes(":")) || ips[0] || "No IP";
