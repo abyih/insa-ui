@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   createSlice,
+  updateSlice,
   deleteSlice,
   loadSlices,
   saveSlices,
@@ -333,5 +334,124 @@ describe("Slicing Service - Topology Info & Multi-Slice Host Discovery", () => {
 
     const updatedSlices = loadSlices();
     expect(updatedSlices[0].hosts[0].mac).toBe("FA:3F:CA:F6:0E:1F");
+  });
+});
+
+describe("Slicing Service - Update Slice (Hosts & Bandwidth)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  it("updates slice bandwidth (increase/decrease) and recreates meters/flows", async () => {
+    const initialSlice = {
+      id: "slice-1",
+      name: "Video Slice",
+      bandwidth: 5000,
+      burstSize: 1000,
+      vlanId: 101,
+      hosts: [
+        { mac: "00:00:00:00:00:01", ipAddresses: ["10.0.0.1"], deviceId: "of:0000000000000002", port: "1", meterId: "1", dropFlowId: "drop-1" },
+        { mac: "00:00:00:00:00:02", ipAddresses: ["10.0.0.2"], deviceId: "of:0000000000000002", port: "2", meterId: "2", dropFlowId: "drop-2" },
+      ],
+      flows: [{ deviceId: "of:0000000000000002", flowId: "flow-old-1" }],
+    };
+    saveSlices([initialSlice]);
+
+    // Increase bandwidth to 15000 KB/s
+    const updated = await updateSlice("slice-1", {
+      ...initialSlice,
+      bandwidth: 15000,
+    });
+
+    expect(updated.bandwidth).toBe(15000);
+    // Verified old flows deleted
+    expect(apiController.deleteOnosFlow).toHaveBeenCalledWith("of:0000000000000002", "flow-old-1");
+    // New meters created with rate 15000
+    expect(apiController.createMeter).toHaveBeenCalledWith(
+      "of:0000000000000002",
+      expect.objectContaining({
+        bands: [expect.objectContaining({ rate: 15000 })],
+      })
+    );
+
+    const saved = loadSlices();
+    expect(saved[0].bandwidth).toBe(15000);
+  });
+
+  it("adds a host to an existing slice and provisions end-to-end flows", async () => {
+    const initialSlice = {
+      id: "slice-1",
+      name: "Team Slice",
+      bandwidth: 5000,
+      hosts: [
+        { mac: "00:00:00:00:00:01", ipAddresses: ["10.0.0.1"], deviceId: "of:0000000000000002", port: "1", meterId: "1" },
+      ],
+      flows: [],
+    };
+    saveSlices([initialSlice]);
+
+    // Add h2 to the slice
+    const updated = await updateSlice("slice-1", {
+      ...initialSlice,
+      selectedHosts: [
+        { mac: "00:00:00:00:00:01", ipAddresses: ["10.0.0.1"], deviceId: "of:0000000000000002", port: "1" },
+        { mac: "00:00:00:00:00:02", ipAddresses: ["10.0.0.2"], deviceId: "of:0000000000000002", port: "2" },
+      ],
+    });
+
+    expect(updated.hosts.length).toBe(2);
+    const saved = loadSlices();
+    expect(saved[0].hosts.length).toBe(2);
+  });
+
+  it("removes a host from an existing slice and cleans up its network artifacts", async () => {
+    const initialSlice = {
+      id: "slice-1",
+      name: "Team Slice",
+      bandwidth: 5000,
+      hosts: [
+        { mac: "00:00:00:00:00:01", ipAddresses: ["10.0.0.1"], deviceId: "of:0000000000000002", port: "1", meterId: "1", dropFlowId: "drop-1" },
+        { mac: "00:00:00:00:00:02", ipAddresses: ["10.0.0.2"], deviceId: "of:0000000000000002", port: "2", meterId: "2", dropFlowId: "drop-2" },
+      ],
+      flows: [{ deviceId: "of:0000000000000002", flowId: "flow-1" }],
+    };
+    saveSlices([initialSlice]);
+
+    // Remove h2, keeping only h1
+    const updated = await updateSlice("slice-1", {
+      ...initialSlice,
+      selectedHosts: [
+        { mac: "00:00:00:00:00:01", ipAddresses: ["10.0.0.1"], deviceId: "of:0000000000000002", port: "1" },
+      ],
+    });
+
+    expect(updated.hosts.length).toBe(1);
+    expect(updated.hosts[0].mac).toBe("00:00:00:00:00:01");
+    // Old drop flows and meters removed during teardown
+    expect(apiController.deleteOnosFlow).toHaveBeenCalledWith("of:0000000000000002", "drop-2");
+    expect(apiController.deleteMeter).toHaveBeenCalledWith("of:0000000000000002", "2");
+
+    const saved = loadSlices();
+    expect(saved[0].hosts.length).toBe(1);
+  });
+
+  it("rejects bandwidth increase when requested bandwidth exceeds remaining capacity", async () => {
+    // Total capacity is 100000 KB/s.
+    // Slice 1 has 50000 KB/s, Slice 2 has 40000 KB/s (Total allocated = 90000 KB/s, 10000 KB/s free).
+    saveSlices([
+      { id: "slice-1", name: "Slice 1", bandwidth: 50000, hosts: [{ mac: "00:00:00:00:00:01", deviceId: "of:0000000000000002", port: "1" }] },
+      { id: "slice-2", name: "Slice 2", bandwidth: 40000, hosts: [{ mac: "00:00:00:00:00:03", deviceId: "of:0000000000000003", port: "1" }] },
+    ]);
+
+    // Trying to increase Slice 2 from 40000 to 60000:
+    // Other slices use 50000. 50000 + 60000 = 110000 > 100000! Must be rejected!
+    await expect(
+      updateSlice("slice-2", {
+        name: "Slice 2",
+        bandwidth: 60000,
+        hosts: [{ mac: "00:00:00:00:00:03", deviceId: "of:0000000000000003", port: "1" }],
+      })
+    ).rejects.toThrow(/Admission Control Rejected/);
   });
 });

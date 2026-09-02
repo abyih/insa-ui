@@ -22,6 +22,8 @@ import {
   Zap,
   Globe,
   Box,
+  Edit3,
+  Save,
 } from "lucide-react";
 import {
   BarChart,
@@ -37,6 +39,7 @@ import {
 import {
   getSlices,
   createSlice,
+  updateSlice,
   deleteSlice,
   getTopologyInfo,
   getAllMeterStats,
@@ -182,7 +185,7 @@ function HostChip({ host, sliceColor }) {
 
 // ─── Slice Card ──────────────────────────────────────────────────────────────
 
-function SliceCard({ slice, onDelete, onToggle, isExpanded }) {
+function SliceCard({ slice, onDelete, onEdit, onToggle, isExpanded }) {
   const totalBytes = useMemo(() => {
     return (slice.hosts || []).reduce((sum, h) => sum + (h.meterStats?.bytes || 0), 0);
   }, [slice.hosts]);
@@ -246,11 +249,46 @@ function SliceCard({ slice, onDelete, onToggle, isExpanded }) {
           )}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-zinc-50)" }}>{formatRate(slice.bandwidth)}</div>
             <div style={{ fontSize: 10, color: "var(--theme-text-muted)" }}>{hostCount} host{hostCount !== 1 ? "s" : ""}</div>
           </div>
+          {onEdit && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(slice);
+              }}
+              title="Edit Slice (Hosts & Bandwidth)"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "6px 11px",
+                borderRadius: 8,
+                border: "1px solid rgba(99, 102, 241, 0.35)",
+                background: "rgba(99, 102, 241, 0.12)",
+                color: "#a5b4fc",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(99, 102, 241, 0.25)";
+                e.currentTarget.style.color = "#ffffff";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(99, 102, 241, 0.12)";
+                e.currentTarget.style.color = "#a5b4fc";
+              }}
+            >
+              <Edit3 size={12} />
+              <span>Edit</span>
+            </button>
+          )}
           {isExpanded ? <ChevronDown size={16} color="var(--theme-text-muted)" /> : <ChevronRight size={16} color="var(--theme-text-muted)" />}
         </div>
       </div>
@@ -344,20 +382,38 @@ function SliceCard({ slice, onDelete, onToggle, isExpanded }) {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
                 <div style={{ fontSize: 11, color: "var(--theme-text-muted)" }}>
                   Created: {slice.createdAt ? new Date(slice.createdAt).toLocaleString() : "Unknown"}
+                  {slice.updatedAt && ` • Updated: ${new Date(slice.updatedAt).toLocaleTimeString()}`}
                 </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(slice.id); }}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)",
-                    color: "#f87171", padding: "7px 14px", borderRadius: 8,
-                    fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.15s",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.2)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.1)"; }}
-                >
-                  <Trash2 size={13} /> Delete Slice
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {onEdit && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onEdit(slice); }}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6,
+                        background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.35)",
+                        color: "#a5b4fc", padding: "7px 14px", borderRadius: 8,
+                        fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.15s",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(99,102,241,0.25)"; e.currentTarget.style.color = "#fff"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(99,102,241,0.12)"; e.currentTarget.style.color = "#a5b4fc"; }}
+                    >
+                      <Edit3 size={13} /> Edit Slice
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(slice.id); }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)",
+                      color: "#f87171", padding: "7px 14px", borderRadius: 8,
+                      fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.15s",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.2)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.1)"; }}
+                  >
+                    <Trash2 size={13} /> Delete Slice
+                  </button>
+                </div>
               </div>
             </div>
           </motion.div>
@@ -392,9 +448,14 @@ function CreateSliceModal({
   });
   const [selectedTemplate, setSelectedTemplate] = useState(null);
 
+  const isEditing = Boolean(initialData?.id);
+
   useEffect(() => {
     if (isOpen) {
       if (initialData) {
+        const hostIds =
+          initialData.selectedHostIds ||
+          (initialData.hosts || []).map((h) => h.id || h.hostId || `${h.mac}/None`);
         setForm({
           name: initialData.name || "",
           description: initialData.description || "",
@@ -403,7 +464,7 @@ function CreateSliceModal({
           unit: initialData.unit || "KB_PER_SEC",
           color: initialData.color || SLICE_COLORS[0],
           vlanId: initialData.vlanId || "",
-          selectedHostIds: initialData.selectedHostIds || [],
+          selectedHostIds: hostIds,
         });
       } else {
         setForm({
@@ -420,8 +481,11 @@ function CreateSliceModal({
     }
   }, [isOpen, initialData]);
 
+  const effectiveRemainingCapacity = isEditing
+    ? remainingCapacity + (Number(initialData.bandwidth) || 0)
+    : remainingCapacity;
   const requestedBandwidth = Number(form.bandwidth) || 0;
-  const isOverCapacity = requestedBandwidth > remainingCapacity;
+  const isOverCapacity = requestedBandwidth > effectiveRemainingCapacity;
 
   const applyTemplate = (template) => {
     setSelectedTemplate(template.id);
@@ -446,7 +510,10 @@ function CreateSliceModal({
   };
 
   const selectAllHosts = () => {
-    const available = onosHosts.filter((h) => !isHostInAnySlice(h));
+    const available = onosHosts.filter((h) => {
+      const existingSlice = isHostInAnySlice(h);
+      return !existingSlice || (isEditing && existingSlice.id === initialData?.id);
+    });
     if (form.selectedHostIds.length === available.length) {
       setForm((prev) => ({ ...prev, selectedHostIds: [] }));
     } else {
@@ -515,11 +582,17 @@ function CreateSliceModal({
               width: 40, height: 40, borderRadius: 12, background: "rgba(99,102,241,0.15)",
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>
-              <Plus size={20} color="#6366f1" />
+              {isEditing ? <Edit3 size={20} color="#6366f1" /> : <Plus size={20} color="#6366f1" />}
             </div>
             <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--color-zinc-50)" }}>Create Network Slice</div>
-              <div style={{ fontSize: 12, color: "var(--theme-text-muted)" }}>Assign hosts to an isolated virtual network with bandwidth controls</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--color-zinc-50)" }}>
+                {isEditing ? `Edit Network Slice: ${initialData.name}` : "Create Network Slice"}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--theme-text-muted)" }}>
+                {isEditing
+                  ? "Modify bandwidth rate, burst size, or add and remove assigned hosts"
+                  : "Assign hosts to an isolated virtual network with bandwidth controls"}
+              </div>
             </div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--theme-text-muted)", cursor: "pointer", fontSize: 20, padding: 4, lineHeight: 1 }}>✕</button>
@@ -528,7 +601,7 @@ function CreateSliceModal({
         <form onSubmit={handleSubmit} style={{ padding: "20px 24px" }}>
           {/* Templates */}
           <div style={{ marginBottom: 20 }}>
-            <label style={labelStyle}>Slice Type (Quick Templates)</label>
+            <label style={labelStyle}>{isEditing ? "Quick Re-Profile (Template)" : "Slice Type (Quick Templates)"}</label>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
               {SLICE_TEMPLATES.map((t) => {
                 const IconComponent =
@@ -594,20 +667,22 @@ function CreateSliceModal({
               <span style={{ color: "var(--color-zinc-50)", fontWeight: 700 }}>{formatRate(totalCapacity)}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 8 }}>
-              <span style={{ color: "var(--theme-text-muted)", fontWeight: 600 }}>Available Unallocated Pool:</span>
-              <span style={{ color: remainingCapacity > 0 ? "#22c55e" : "#ef4444", fontWeight: 700 }}>
-                {formatRate(remainingCapacity)}
+              <span style={{ color: "var(--theme-text-muted)", fontWeight: 600 }}>
+                {isEditing ? "Available Pool for this Slice:" : "Available Unallocated Pool:"}
+              </span>
+              <span style={{ color: !isOverCapacity ? "#22c55e" : "#ef4444", fontWeight: 700 }}>
+                {formatRate(effectiveRemainingCapacity)}
               </span>
             </div>
             {/* Visual allocation bar */}
             <div style={{ height: 6, borderRadius: 3, background: "rgba(255, 255, 255, 0.1)", overflow: "hidden", display: "flex" }}>
-              <div style={{ width: `${Math.min(100, (totalAllocatedBandwidth / totalCapacity) * 100)}%`, background: "#6366f1" }} />
-              <div style={{ width: `${Math.min(100 - (totalAllocatedBandwidth / totalCapacity) * 100, (requestedBandwidth / totalCapacity) * 100)}%`, background: isOverCapacity ? "#ef4444" : form.color }} />
+              <div style={{ width: `${Math.min(100, (Math.max(0, totalAllocatedBandwidth - (isEditing ? Number(initialData.bandwidth || 0) : 0)) / totalCapacity) * 100)}%`, background: "#6366f1" }} />
+              <div style={{ width: `${Math.min(100, (requestedBandwidth / totalCapacity) * 100)}%`, background: isOverCapacity ? "#ef4444" : form.color }} />
             </div>
             {isOverCapacity && (
               <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#f87171", fontSize: 11, fontWeight: 600, marginTop: 8 }}>
                 <AlertTriangle size={13} />
-                <span>Admission Control Alert: Requested {formatRate(requestedBandwidth)} exceeds remaining capacity ({formatRate(remainingCapacity)}).</span>
+                <span>Admission Control Alert: Requested {formatRate(requestedBandwidth)} exceeds available capacity ({formatRate(effectiveRemainingCapacity)}).</span>
               </div>
             )}
           </div>
@@ -676,7 +751,9 @@ function CreateSliceModal({
                   const hostId = host.id || `${host.mac}/None`;
                   const isSelected = form.selectedHostIds.includes(hostId);
                   const existingSlice = isHostInAnySlice(host);
-                  const isUnavailable = !!existingSlice;
+                  const isAssignedToOther = !!existingSlice && (!isEditing || existingSlice.id !== initialData?.id);
+                  const isAssignedToCurrent = isEditing && existingSlice?.id === initialData?.id;
+                  const isUnavailable = isAssignedToOther;
                   const ips = host.ipAddresses || [];
                   const ip = ips.find((i) => !i.includes(":")) || ips[0] || "No IP";
                   const loc = host.locations?.[0] || host.location || {};
@@ -731,6 +808,11 @@ function CreateSliceModal({
                             Already in: {existingSlice.name}
                           </div>
                         )}
+                        {isAssignedToCurrent && (
+                          <div style={{ fontSize: 10, color: "#818cf8", fontWeight: 600, marginTop: 2 }}>
+                            Currently in this slice
+                          </div>
+                        )}
                       </div>
                     </button>
                   );
@@ -775,9 +857,11 @@ function CreateSliceModal({
                 opacity: form.selectedHostIds.length === 0 || isOverCapacity ? 0.6 : 1, transition: "all 0.15s",
               }}>
               {loading ? (
-                <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Creating...</>
+                <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> {isEditing ? "Updating..." : "Creating..."}</>
               ) : isOverCapacity ? (
                 <><AlertTriangle size={14} /> Capacity Exceeded</>
+              ) : isEditing ? (
+                <><Save size={14} /> Save Changes</>
               ) : (
                 <><Layers size={14} /> Create Slice</>
               )}
@@ -799,6 +883,7 @@ export default function NetworkSlicing() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [editingSlice, setEditingSlice] = useState(null);
   const [prefillData, setPrefillData] = useState(null);
   const [expandedSlice, setExpandedSlice] = useState(null);
   const [message, setMessage] = useState(null);
@@ -854,19 +939,30 @@ export default function NetworkSlicing() {
     return () => clearInterval(interval);
   }, [slices, meterStats]);
 
-  const handleCreate = useCallback(async (config) => {
+  const handleEdit = useCallback((slice) => {
+    setEditingSlice(slice);
+    setShowCreate(true);
+  }, []);
+
+  const handleSubmitSlice = useCallback(async (config) => {
     setCreating(true);
     try {
-      const newSlice = await createSlice(config);
-      showMessage(`Slice "${newSlice.name}" created — ${newSlice.hosts.length} host(s) assigned to VLAN ${newSlice.vlanId}`, "success");
+      if (editingSlice) {
+        const updated = await updateSlice(editingSlice.id, config);
+        showMessage(`Slice "${updated.name}" updated — ${updated.hosts.length} host(s) assigned, ${formatRate(updated.bandwidth)} cap`, "success");
+        setEditingSlice(null);
+      } else {
+        const newSlice = await createSlice(config);
+        showMessage(`Slice "${newSlice.name}" created — ${newSlice.hosts.length} host(s) assigned to VLAN ${newSlice.vlanId}`, "success");
+      }
       setShowCreate(false);
       await loadData();
     } catch (err) {
-      showMessage("Failed to create slice: " + err.message, "error");
+      showMessage(`Failed to ${editingSlice ? "update" : "create"} slice: ` + err.message, "error");
     } finally {
       setCreating(false);
     }
-  }, [loadData, showMessage]);
+  }, [editingSlice, loadData, showMessage]);
 
   const handleDelete = useCallback(async (sliceId) => {
     const slice = slices.find((s) => s.id === sliceId);
@@ -922,7 +1018,7 @@ export default function NetworkSlicing() {
             }}>
             <RefreshCw size={14} style={loading ? { animation: "spin 1s linear infinite" } : {}} /> Refresh
           </button>
-          <button onClick={() => { setPrefillData(null); setShowCreate(true); }}
+          <button onClick={() => { setEditingSlice(null); setPrefillData(null); setShowCreate(true); }}
             style={{
               display: "flex", alignItems: "center", gap: 6, padding: "9px 18px",
               borderRadius: 10, border: "none", background: "#6366f1", color: "#fff",
@@ -1101,7 +1197,7 @@ export default function NetworkSlicing() {
                 Create a slice to group hosts into an isolated virtual network. Hosts in the same slice can communicate.
                 Hosts in different slices are isolated from each other.
               </div>
-              <button onClick={() => setShowCreate(true)}
+              <button onClick={() => { setEditingSlice(null); setPrefillData(null); setShowCreate(true); }}
                 style={{
                   display: "flex", alignItems: "center", gap: 6, padding: "10px 20px",
                   borderRadius: 10, border: "none", background: "#6366f1", color: "#fff",
@@ -1114,7 +1210,7 @@ export default function NetworkSlicing() {
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <AnimatePresence>
                 {slices.map((slice) => (
-                  <SliceCard key={slice.id} slice={slice} onDelete={handleDelete}
+                  <SliceCard key={slice.id} slice={slice} onEdit={handleEdit} onDelete={handleDelete}
                     isExpanded={expandedSlice === slice.id}
                     onToggle={() => setExpandedSlice(expandedSlice === slice.id ? null : slice.id)}
                   />
@@ -1194,22 +1290,23 @@ export default function NetworkSlicing() {
         </div>
       </div>
 
-      {/* Create Modal */}
+      {/* Create / Edit Modal */}
       <AnimatePresence>
         {showCreate && (
           <CreateSliceModal
             isOpen={showCreate}
             onClose={() => {
               setShowCreate(false);
+              setEditingSlice(null);
               setPrefillData(null);
             }}
-            onSubmit={handleCreate}
+            onSubmit={handleSubmitSlice}
             onosHosts={onosHosts}
             loading={creating}
             totalCapacity={totalCapacity}
             totalAllocatedBandwidth={totalBandwidth}
             remainingCapacity={remainingCapacity}
-            initialData={prefillData}
+            initialData={editingSlice || prefillData}
           />
         )}
       </AnimatePresence>

@@ -520,56 +520,21 @@ export function findSwitchPath(srcDev, dstDev, links = [], srcHostPort, dstHostP
 }
 
 /**
- * Create a new network slice.
- *
- * For each host in the slice:
- *   1. Optionally create a bandwidth meter on the host's switch.
- *   2. Install end-to-end multi-switch forwarding rules (Priority 40000) for unicast IP & ARP.
- *   3. Install slice-aware ARP broadcast routing between peers (Priority 40000).
- *   4. Install strict isolation drop rule on ingress switches (Priority 39000).
+ * Provision network meters and flow rules on ONOS switches for a given slice config.
  */
-export async function createSlice(sliceConfig) {
+export async function provisionSliceNetwork(sliceConfig, topologyLinks) {
   const {
-    name,
-    description = "",
     bandwidth,
     burstSize = Math.round(bandwidth * 0.2),
     unit = "KB_PER_SEC",
-    color = "#6366f1",
-    selectedHosts = sliceConfig.selectedHosts || sliceConfig.hosts || [],
-    vlanId: manualVlanId = null,
+    selectedHosts = [],
+    type,
+    template,
   } = sliceConfig;
 
-  if (!name) throw new Error("Slice name is required");
-  if (!bandwidth || bandwidth <= 0) throw new Error("Bandwidth must be > 0");
-  if (selectedHosts.length === 0)
-    throw new Error("At least one host must be assigned to the slice");
-
-  // Admission Control: Check if requested bandwidth fits within remaining capacity pool
-  const existingSlices = loadSlices();
-  const currentAllocated = existingSlices.reduce((sum, s) => sum + (Number(s.bandwidth) || 0), 0);
-  const totalCapacity = getNetworkCapacity();
-  const requestedBandwidth = Number(bandwidth) || 0;
-
-  if (currentAllocated + requestedBandwidth > totalCapacity) {
-    const remaining = Math.max(0, totalCapacity - currentAllocated);
-    const reqStr = requestedBandwidth >= 1000 ? `${(requestedBandwidth / 1000).toFixed(1)} MB/s` : `${requestedBandwidth} KB/s`;
-    const remStr = remaining >= 1000 ? `${(remaining / 1000).toFixed(1)} MB/s` : `${remaining} KB/s`;
-    const capStr = `${(totalCapacity / 1000).toFixed(0)} MB/s`;
-    throw new Error(
-      `Admission Control Rejected: Requested ${reqStr} exceeds remaining available capacity (${remStr} free of ${capStr} total pool).`
-    );
-  }
-
-  const sliceId = `slice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  const vlanId = manualVlanId || getNextVlanId();
-
-  // Fetch current topology links for path calculation
-  const topologyLinks = await getLinks().catch(() => []);
-
-  // Track all installed flow rules across all switches for cleanup: [{ deviceId, flowId }]
   const installedFlows = [];
   const installedHosts = [];
+  const isSyntheticMac = (m) => !m || String(m).toLowerCase().startsWith("00:00:00:00:00:");
 
   // Step 1: Create meters & drop boundary rules for each host
   for (const host of selectedHosts) {
@@ -614,9 +579,6 @@ export async function createSlice(sliceConfig) {
       }
     }
 
-    // Helper: detect if MAC is synthetic dummy fallback
-    const isSyntheticMac = (m) => !m || String(m).toLowerCase().startsWith("00:00:00:00:00:");
-
     // Install strict Isolation Boundary (Priority 39000 Drop Rule) on ingress switch
     const dropCriteria = [{ type: "IN_PORT", port: Number(port) }];
     if (!isSyntheticMac(mac)) {
@@ -656,7 +618,6 @@ export async function createSlice(sliceConfig) {
   }
 
   // Step 2: Install end-to-end peer unicast forwarding flows between all pairs of hosts
-  // And collect ARP broadcast rules grouped by (deviceId, inPort, sourceMac)
   const arpRuleMap = new Map();
 
   for (let i = 0; i < selectedHosts.length; i++) {
@@ -681,7 +642,7 @@ export async function createSlice(sliceConfig) {
       }
 
       // Install unicast forwarding flows along each hop
-      const isLowLatency = sliceConfig.type === "low-latency" || sliceConfig.template === "urllc";
+      const isLowLatency = type === "low-latency" || template === "urllc";
 
       for (let hopIdx = 0; hopIdx < hops.length; hopIdx++) {
         const hop = hops[hopIdx];
@@ -734,8 +695,8 @@ export async function createSlice(sliceConfig) {
         instructions.push({ type: "OUTPUT", port: String(hop.outPort) });
 
         // Unicast traffic flow (both IPv4 and unicast ARP replies)
-        const isSyntheticA = !hostA.mac || String(hostA.mac).toLowerCase().startsWith("00:00:00:00:00:");
-        const isSyntheticB = !hostB.mac || String(hostB.mac).toLowerCase().startsWith("00:00:00:00:00:");
+        const isSyntheticA = isSyntheticMac(hostA.mac);
+        const isSyntheticB = isSyntheticMac(hostB.mac);
         const unicastCriteria = [{ type: "IN_PORT", port: Number(hop.inPort) }];
         if (!isSyntheticA) {
           unicastCriteria.push({ type: "ETH_SRC", mac: hostA.mac });
@@ -786,7 +747,7 @@ export async function createSlice(sliceConfig) {
       port: String(p),
     }));
 
-    const isSynthetic = !rule.mac || String(rule.mac).toLowerCase().startsWith("00:00:00:00:00:");
+    const isSynthetic = isSyntheticMac(rule.mac);
     const arpCriteria = [
       { type: "IN_PORT", port: Number(rule.inPort) },
       { type: "ETH_TYPE", ethType: 2054 },
@@ -816,15 +777,79 @@ export async function createSlice(sliceConfig) {
     }
   }
 
+  return { installedHosts, installedFlows };
+}
+
+/**
+ * Create a new network slice.
+ */
+export async function createSlice(sliceConfig) {
+  const {
+    name,
+    description = "",
+    bandwidth,
+    burstSize = Math.round(bandwidth * 0.2),
+    unit = "KB_PER_SEC",
+    color = "#6366f1",
+    selectedHosts = sliceConfig.selectedHosts || sliceConfig.hosts || [],
+    vlanId: manualVlanId = null,
+    type,
+    template,
+  } = sliceConfig;
+
+  if (!name) throw new Error("Slice name is required");
+  if (!bandwidth || bandwidth <= 0) throw new Error("Bandwidth must be > 0");
+  if (selectedHosts.length === 0)
+    throw new Error("At least one host must be assigned to the slice");
+
+  // Admission Control: Check if requested bandwidth fits within remaining capacity pool
+  const existingSlices = loadSlices();
+  const currentAllocated = existingSlices.reduce((sum, s) => sum + (Number(s.bandwidth) || 0), 0);
+  const totalCapacity = getNetworkCapacity();
+  const requestedBandwidth = Number(bandwidth) || 0;
+
+  if (currentAllocated + requestedBandwidth > totalCapacity) {
+    const remaining = Math.max(0, totalCapacity - currentAllocated);
+    const reqStr = requestedBandwidth >= 1000 ? `${(requestedBandwidth / 1000).toFixed(1)} MB/s` : `${requestedBandwidth} KB/s`;
+    const remStr = remaining >= 1000 ? `${(remaining / 1000).toFixed(1)} MB/s` : `${remaining} KB/s`;
+    const capStr = `${(totalCapacity / 1000).toFixed(0)} MB/s`;
+    throw new Error(
+      `Admission Control Rejected: Requested ${reqStr} exceeds remaining available capacity (${remStr} free of ${capStr} total pool).`
+    );
+  }
+
+  const sliceId = `slice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const vlanId = manualVlanId || getNextVlanId();
+
+  // Fetch current topology links for path calculation
+  const topologyLinks = await getLinks().catch(() => []);
+
+  // Provision network meters and flow rules on ONOS
+  const { installedHosts, installedFlows } = await provisionSliceNetwork(
+    {
+      selectedHosts,
+      bandwidth: Number(bandwidth),
+      burstSize: Number(burstSize),
+      unit,
+      color,
+      vlanId,
+      type,
+      template,
+    },
+    topologyLinks
+  );
+
   const slice = {
     id: sliceId,
     name,
     description,
-    bandwidth,
-    burstSize,
+    bandwidth: Number(bandwidth),
+    burstSize: Number(burstSize),
     unit,
     vlanId,
     color,
+    type,
+    template,
     hosts: installedHosts,
     flows: installedFlows,
     status: "ACTIVE",
@@ -839,13 +864,9 @@ export async function createSlice(sliceConfig) {
 }
 
 /**
- * Delete a slice — removes all its meters and flow rules across all switches.
+ * Remove all flow rules and meters associated with a slice from ONOS switches.
  */
-export async function deleteSlice(sliceId) {
-  const slices = loadSlices();
-  const slice = slices.find((s) => s.id === sliceId);
-  if (!slice) throw new Error(`Slice not found: ${sliceId}`);
-
+export async function removeSliceNetworkArtifacts(slice) {
   const errors = [];
   const hostMacs = new Set(
     (slice.hosts || []).map((h) => (h.mac || "").toLowerCase()).filter(Boolean)
@@ -906,9 +927,113 @@ export async function deleteSlice(sliceId) {
         }
       }
     } catch (err) {
-      console.warn("[Slicing] Deep clean error during slice deletion:", err);
+      console.warn("[Slicing] Deep clean error during slice cleanup:", err);
     }
   }
+
+  return errors;
+}
+
+/**
+ * Update an existing network slice:
+ * - Allows adding or removing hosts
+ * - Allows increasing or decreasing bandwidth (subject to admission control)
+ * - Safely re-provisions network meters and flows on ONOS switches
+ */
+export async function updateSlice(sliceId, updatedConfig) {
+  const slices = loadSlices();
+  const sliceIndex = slices.findIndex((s) => s.id === sliceId);
+  if (sliceIndex === -1) throw new Error(`Slice not found: ${sliceId}`);
+  const oldSlice = slices[sliceIndex];
+
+  const {
+    name = oldSlice.name,
+    description = oldSlice.description,
+    bandwidth = oldSlice.bandwidth,
+    burstSize = updatedConfig.burstSize || Math.round(Number(bandwidth) * 0.2),
+    unit = updatedConfig.unit || oldSlice.unit || "KB_PER_SEC",
+    color = updatedConfig.color || oldSlice.color || "#6366f1",
+    selectedHosts = updatedConfig.selectedHosts || updatedConfig.hosts || oldSlice.hosts || [],
+    vlanId = updatedConfig.vlanId || oldSlice.vlanId,
+    type = updatedConfig.type || oldSlice.type,
+    template = updatedConfig.template || oldSlice.template,
+  } = updatedConfig;
+
+  if (!name) throw new Error("Slice name is required");
+  if (!bandwidth || Number(bandwidth) <= 0) throw new Error("Bandwidth must be > 0");
+  if (selectedHosts.length === 0)
+    throw new Error("At least one host must be assigned to the slice");
+
+  // Admission Control: Check remaining capacity excluding this slice's current allocation
+  const otherAllocated = slices
+    .filter((s) => s.id !== sliceId)
+    .reduce((sum, s) => sum + (Number(s.bandwidth) || 0), 0);
+  const totalCapacity = getNetworkCapacity();
+  const requestedBandwidth = Number(bandwidth) || 0;
+
+  if (otherAllocated + requestedBandwidth > totalCapacity) {
+    const remaining = Math.max(0, totalCapacity - otherAllocated);
+    const reqStr = requestedBandwidth >= 1000 ? `${(requestedBandwidth / 1000).toFixed(1)} MB/s` : `${requestedBandwidth} KB/s`;
+    const remStr = remaining >= 1000 ? `${(remaining / 1000).toFixed(1)} MB/s` : `${remaining} KB/s`;
+    const capStr = `${(totalCapacity / 1000).toFixed(0)} MB/s`;
+    throw new Error(
+      `Admission Control Rejected: Requested ${reqStr} exceeds remaining available capacity (${remStr} free of ${capStr} total pool).`
+    );
+  }
+
+  // Fetch current topology links for path calculation
+  const topologyLinks = await getLinks().catch(() => []);
+
+  // 1. Tear down old network artifacts in ONOS for oldSlice
+  await removeSliceNetworkArtifacts(oldSlice);
+
+  // 2. Provision new network artifacts in ONOS for updatedConfig
+  const { installedHosts, installedFlows } = await provisionSliceNetwork(
+    {
+      selectedHosts,
+      bandwidth: Number(bandwidth),
+      burstSize: Number(burstSize),
+      unit,
+      color,
+      vlanId,
+      type,
+      template,
+    },
+    topologyLinks
+  );
+
+  const updatedSlice = {
+    ...oldSlice,
+    name,
+    description,
+    bandwidth: Number(bandwidth),
+    burstSize: Number(burstSize),
+    unit,
+    vlanId,
+    color,
+    type,
+    template,
+    hosts: installedHosts,
+    flows: installedFlows,
+    status: "ACTIVE",
+    updatedAt: new Date().toISOString(),
+  };
+
+  slices[sliceIndex] = updatedSlice;
+  saveSlices(slices);
+
+  return updatedSlice;
+}
+
+/**
+ * Delete a slice — removes all its meters and flow rules across all switches.
+ */
+export async function deleteSlice(sliceId) {
+  const slices = loadSlices();
+  const slice = slices.find((s) => s.id === sliceId);
+  if (!slice) throw new Error(`Slice not found: ${sliceId}`);
+
+  const errors = await removeSliceNetworkArtifacts(slice);
 
   const remaining = slices.filter((s) => s.id !== sliceId);
   saveSlices(remaining);
