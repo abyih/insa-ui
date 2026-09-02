@@ -69,6 +69,14 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        // Dedicated ONOS & Mininet QoS backend (server-onos.js on port 5001)
+        "/api/onos-service": {
+          target: "http://127.0.0.1:5001",
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/onos-service/, "/api/onos"),
+          timeout: 10000,
+          proxyTimeout: 10000,
+        },
       },
     },
   };

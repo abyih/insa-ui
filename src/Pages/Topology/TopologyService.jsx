@@ -256,47 +256,140 @@ const NetworkTopologySvc = {
 					});
 				}
 
-				// 3. Add hosts
-				// If ONOS discovered hosts from traffic (pingall):
+				// Set of all inter-switch trunk ports
+				const interSwitchPorts = new Set();
+				links.forEach((l) => {
+					if (l.src?.device && l.src?.port) interSwitchPorts.add(`${l.src.device}:${l.src.port}`);
+					if (l.dst?.device && l.dst?.port) interSwitchPorts.add(`${l.dst.device}:${l.dst.port}`);
+				});
+
+				// 3. Add hosts (Layered: Live ONOS Discovered -> Saved Slices -> Complementary Leaf Endpoints)
 				const ofDiscoveredHosts = hosts.filter((h) =>
-					h.locations?.some((loc) => ofNodeIds.has(loc.elementId))
+					(h.locations || []).some(
+						(loc) => ofNodeIds.has(loc.elementId) && !interSwitchPorts.has(`${loc.elementId}:${loc.port}`)
+					)
 				);
 
-				if (ofDiscoveredHosts.length > 0) {
-					ofDiscoveredHosts.forEach((h) => {
-						const hostId = h.id || h.mac;
-						const ip = h.ipAddresses?.[0] || h.mac;
-						ofNodes.push({
-							id: hostId,
-							label: `Host: ${ip}`,
-							group: "host",
-							value: 16,
-							title: `Host: <b>${ip}</b><br>MAC: <b>${h.mac}</b><br>VLAN: ${h.vlan || "0"}`,
-							nodeDetails: { type: "Host", nodeId: hostId, ip, mac: h.mac },
-						});
-						(h.locations || []).forEach((loc) => {
-							if (loc.elementId && ofNodeIds.has(loc.elementId)) {
-								ofLinks.push({
-									from: hostId,
-									to: loc.elementId,
-									title: `Host ↔ Port <b>${loc.port}</b>`,
-									width: 2,
-									color: { color: "#10b981" },
-								});
-							}
-						});
+				const knownHostMacs = new Set();
+				const knownHostIps = new Set();
+				const knownHostLocs = new Set();
+
+				// 3a. Add live discovered hosts (strictly on edge ports)
+				ofDiscoveredHosts.forEach((h) => {
+					const hostId = h.id || h.mac;
+					const ip = h.ipAddresses?.[0] || h.mac;
+					const mac = (h.mac || "").toLowerCase();
+					if (mac) knownHostMacs.add(mac);
+					if (ip) knownHostIps.add(ip.toLowerCase());
+
+					ofNodes.push({
+						id: hostId,
+						label: `Host: ${ip}`,
+						group: "host",
+						value: 16,
+						title: `Host: <b>${ip}</b><br>MAC: <b>${h.mac}</b><br>VLAN: ${h.vlan || "0"}`,
+						nodeDetails: { type: "Host", nodeId: hostId, ip, mac: h.mac },
 					});
-				} else {
-					// Fallback based on switch port inspection for tree topology:
-					// Each leaf switch (s2, s3) hosts 2 endpoints (h1, h2 on s2; h3, h4 on s3)
-					let hostCounter = 1;
-					leafSwitches.forEach((leaf) => {
-						// 2 hosts per leaf switch in depth=2, fanout=2
-						for (let i = 1; i <= 2; i++) {
-							const hostId = `host:h${hostCounter}`;
-							const hostIp = `10.0.0.${hostCounter}`;
-							const hostMac = `00:00:00:00:00:0${hostCounter}`;
-							const hostLabel = `Host h${hostCounter} (${hostIp})`;
+
+					(h.locations || []).forEach((loc) => {
+						if (
+							loc.elementId &&
+							ofNodeIds.has(loc.elementId) &&
+							!interSwitchPorts.has(`${loc.elementId}:${loc.port}`)
+						) {
+							knownHostLocs.add(`${loc.elementId}:${loc.port}`);
+							ofLinks.push({
+								from: hostId,
+								to: loc.elementId,
+								title: `Host ↔ Port <b>${loc.port}</b>`,
+								width: 2,
+								color: { color: "#10b981" },
+							});
+						}
+					});
+				});
+
+				// 3b. Complement with saved slice hosts (if not already captured live)
+				let savedSlices = [];
+				try {
+					const raw = localStorage.getItem("onos-network-slices");
+					if (raw) savedSlices = JSON.parse(raw);
+				} catch {}
+
+				savedSlices.forEach((s) => {
+					(s.hosts || []).forEach((sh) => {
+						const mac = (sh.mac || "").toLowerCase();
+						const ip = ((sh.ipAddresses || [])[0] || "").toLowerCase();
+						const locKey = sh.deviceId && sh.port ? `${sh.deviceId}:${sh.port}` : null;
+						const isKnown =
+							(mac && knownHostMacs.has(mac)) ||
+							(ip && knownHostIps.has(ip)) ||
+							(locKey && knownHostLocs.has(locKey));
+
+						if (!isKnown && sh.deviceId && ofNodeIds.has(sh.deviceId) && (!locKey || !interSwitchPorts.has(locKey))) {
+							if (mac) knownHostMacs.add(mac);
+							if (ip) knownHostIps.add(ip);
+							if (locKey) knownHostLocs.add(locKey);
+							const hostId = sh.hostId || `${sh.mac}/None`;
+							const hostIp = (sh.ipAddresses || [])[0] || sh.mac;
+
+							ofNodes.push({
+								id: hostId,
+								label: `Host: ${hostIp}`,
+								group: "host",
+								value: 16,
+								title: `Host: <b>${hostIp}</b><br>MAC: <b>${sh.mac}</b><br>Slice: <b>${s.name}</b>`,
+								nodeDetails: {
+									type: "Host",
+									nodeId: hostId,
+									ip: hostIp,
+									mac: sh.mac,
+									connectedSwitch: sh.deviceId,
+									port: sh.port || "1",
+								},
+							});
+
+							ofLinks.push({
+								from: hostId,
+								to: sh.deviceId,
+								title: `Host ↔ Port <b>${sh.port || "1"}</b>`,
+								width: 2,
+								color: { color: "#10b981" },
+							});
+						}
+					});
+				});
+
+				// 3c. Complement with standard leaf switch endpoints (e.g. s2: h1, h2; s3: h3, h4)
+				const sortedLeafSwitches = [...leafSwitches].sort((a, b) => {
+					const getNum = (node) => {
+						const desc = (node.nodeDetails?.bridgeName || node.label || "").toLowerCase();
+						const m = desc.match(/s(\d+)/);
+						if (m) return parseInt(m[1], 10);
+						const parts = String(node.id || "").split(":");
+						return parseInt(parts[parts.length - 1], 16) || 0;
+					};
+					return getNum(a) - getNum(b);
+				});
+
+				sortedLeafSwitches.forEach((leaf, swIdx) => {
+					for (let i = 1; i <= 2; i++) {
+						const hostCounter = swIdx * 2 + i;
+						const hostId = `host:h${hostCounter}`;
+						const hostIp = `10.0.0.${hostCounter}`;
+						const hostMac = `00:00:00:00:00:0${hostCounter}`;
+						const hostLabel = `Host h${hostCounter} (${hostIp})`;
+						const locKey = `${leaf.id}:${i}`;
+
+						const isKnown =
+							knownHostMacs.has(hostMac.toLowerCase()) ||
+							knownHostIps.has(hostIp.toLowerCase()) ||
+							knownHostLocs.has(locKey);
+
+						if (!isKnown) {
+							knownHostMacs.add(hostMac.toLowerCase());
+							knownHostIps.add(hostIp.toLowerCase());
+							knownHostLocs.add(locKey);
 
 							ofNodes.push({
 								id: hostId,
@@ -321,11 +414,9 @@ const NetworkTopologySvc = {
 								width: 2,
 								color: { color: "#10b981" },
 							});
-
-							hostCounter++;
 						}
-					});
-				}
+					}
+				});
 
 				return {
 					nodes: ofNodes,

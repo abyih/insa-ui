@@ -231,6 +231,15 @@ function SliceCard({ slice, onDelete, onToggle, isExpanded }) {
             }}>
               VLAN {slice.vlanId}
             </span>
+            {(slice.template === "urllc" || slice.type === "low-latency" || slice.dscp === 46) && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6,
+                background: "rgba(239,68,68,0.2)", color: "#ef4444", letterSpacing: 0.5,
+                border: "1px solid rgba(239,68,68,0.3)",
+              }}>
+                ⚡ DSCP 46 • Queue 0 (60M)
+              </span>
+            )}
           </div>
           {slice.description && (
             <div style={{ fontSize: 12, color: "var(--theme-text-muted)", marginTop: 3 }}>{slice.description}</div>
@@ -828,11 +837,17 @@ export default function NetworkSlicing() {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const [slicesData, statsData] = await Promise.all([
+        const [slicesData, topoData, statsData] = await Promise.all([
           getSlices().catch(() => slices),
+          getTopologyInfo().catch(() => null),
           getAllMeterStats().catch(() => meterStats),
         ]);
         setSlices(slicesData);
+        if (topoData) {
+          setOnosHosts(topoData.hosts || []);
+          setDevices(topoData.devices || []);
+          setLinks(topoData.links || []);
+        }
         setMeterStats(statsData);
       } catch { /* silent */ }
     }, 15000);

@@ -83,23 +83,41 @@ export default function SliceTopology({
     return (devices || []).filter((d) => d.available !== false && d.available !== "false");
   }, [devices]);
 
-  // Combine ONOS discovered hosts, hosts saved in slices, and standard switch hosts
+  // Combine ONOS discovered hosts, hosts saved in slices, and standard leaf switch hosts
   const combinedHosts = useMemo(() => {
     // If no switches are active in the network, no hosts can exist
     if (activeDevices.length === 0) return [];
 
     const activeDevIds = new Set(activeDevices.map((d) => d.id));
-    const liveHosts = (hosts || []).filter((h) => {
-      const loc = h.locations?.[0] || h.location;
-      return !loc || activeDevIds.has(loc.elementId);
-    });
-
-    if (liveHosts.length > 0) {
-      return liveHosts;
+    const interSwitchPorts = new Set();
+    for (const l of links || []) {
+      if (l.src?.device && l.src?.port) interSwitchPorts.add(`${l.src.device}:${l.src.port}`);
+      if (l.dst?.device && l.dst?.port) interSwitchPorts.add(`${l.dst.device}:${l.dst.port}`);
     }
+
+    const liveHosts = (hosts || []).filter((h) => {
+      const loc = (h.locations || []).find(
+        (l) => l?.elementId && l?.port && !interSwitchPorts.has(`${l.elementId}:${l.port}`)
+      ) || (h.location && !interSwitchPorts.has(`${h.location.elementId}:${h.location.port}`) ? h.location : null);
+      return loc && activeDevIds.has(loc.elementId);
+    });
 
     const map = new Map();
     const knownIps = new Set();
+    const knownLocations = new Set();
+
+    // 1. Add Live ONOS Hosts (edge ports only)
+    for (const h of liveHosts) {
+      const mac = (h.mac || h.id || "").toLowerCase();
+      const ip = ((h.ipAddresses || h.ips || [])[0] || "").toLowerCase();
+      const loc = (h.locations || []).find(
+        (l) => l?.elementId && l?.port && !interSwitchPorts.has(`${l.elementId}:${l.port}`)
+      ) || h.location;
+      const locKey = loc?.elementId && loc?.port ? `${loc.elementId}:${loc.port}` : null;
+      if (mac) map.set(mac, { ...h, deviceId: loc?.elementId, port: loc?.port });
+      if (ip) knownIps.add(ip);
+      if (locKey) knownLocations.add(locKey);
+    }
 
     // 2. Add any hosts defined in slices that attach to active switches
     for (const s of slices || []) {
@@ -107,55 +125,77 @@ export default function SliceTopology({
         if (sh.deviceId && !activeDevIds.has(sh.deviceId)) continue;
         const mac = (sh.mac || sh.hostId || "").toLowerCase();
         const ip = ((sh.ipAddresses || [])[0] || "").toLowerCase();
-        const isKnown = (mac && map.has(mac)) || (ip && knownIps.has(ip));
-        if (!isKnown) {
-          if (mac) map.set(mac, {
-            id: sh.hostId || `${sh.mac}/None`,
-            mac: sh.mac,
-            ipAddresses: sh.ipAddresses || [],
-            deviceId: sh.deviceId,
-            port: sh.port,
-            locations: sh.deviceId ? [{ elementId: sh.deviceId, port: String(sh.port || "1") }] : [],
-            location: sh.deviceId ? { elementId: sh.deviceId, port: String(sh.port || "1") } : null,
-          });
+        const locKey = sh.deviceId && sh.port ? `${sh.deviceId}:${sh.port}` : null;
+        const isKnown = (mac && map.has(mac)) || (ip && knownIps.has(ip)) || (locKey && knownLocations.has(locKey));
+
+        if (!isKnown && (!locKey || !interSwitchPorts.has(locKey))) {
+          if (mac) {
+            map.set(mac, {
+              id: sh.hostId || `${sh.mac}/None`,
+              mac: sh.mac,
+              ipAddresses: sh.ipAddresses || [],
+              deviceId: sh.deviceId,
+              port: sh.port,
+              locations: sh.deviceId ? [{ elementId: sh.deviceId, port: String(sh.port || "1") }] : [],
+              location: sh.deviceId ? { elementId: sh.deviceId, port: String(sh.port || "1") } : null,
+            });
+          }
           if (ip) knownIps.add(ip);
+          if (locKey) knownLocations.add(locKey);
         }
       }
     }
 
-    // 3. Fallback: If STILL no hosts at all but active switches exist, generate standard topology hosts strictly for leaf switches (e.g. s2, s3 = 4 hosts)
-    if (map.size === 0 && activeDevices.length > 0) {
+    // 3. Complement with leaf switch standard hosts strictly for leaf switches (e.g. s2: h1, h2; s3: h3, h4)
+    if (activeDevices.length > 0) {
+      const getNum = (dev) => {
+        const name = getSwitchDisplayName(dev).toLowerCase();
+        const m = name.match(/s(\d+)/);
+        if (m) return parseInt(m[1], 10);
+        const parts = String(dev.id || "").split(":");
+        return parseInt(parts[parts.length - 1], 16) || 0;
+      };
+
       const leafSwitches = activeDevices.filter((d) => {
         if (activeDevices.length <= 1) return true;
         const name = getSwitchDisplayName(d).toLowerCase();
         if (name === "s1" || name.includes("core") || name.includes("spine")) return false;
-        const parts = String(d.id || "").split(":");
-        const num = parseInt(parts[parts.length - 1], 16);
+        const num = getNum(d);
         return num !== 1;
       });
       const targetSwitches = leafSwitches.length > 0 ? leafSwitches : activeDevices;
+      const sortedSwitches = [...targetSwitches].sort((a, b) => getNum(a) - getNum(b));
 
-      let count = 1;
-      targetSwitches.forEach((sw) => {
+      sortedSwitches.forEach((sw, swIdx) => {
         for (let i = 1; i <= 2; i++) {
+          const count = swIdx * 2 + i;
           const mac = `00:00:00:00:00:0${count}`;
           const ip = `10.0.0.${count}`;
-          map.set(mac.toLowerCase(), {
-            id: `host:h${count}`,
-            mac,
-            ipAddresses: [ip],
-            deviceId: sw.id,
-            port: String(i),
-            locations: [{ elementId: sw.id, port: String(i) }],
-            location: { elementId: sw.id, port: String(i) },
-          });
-          count++;
+          const locKey = `${sw.id}:${i}`;
+          const isKnown =
+            (mac && map.has(mac.toLowerCase())) ||
+            (ip && knownIps.has(ip.toLowerCase())) ||
+            knownLocations.has(locKey);
+
+          if (!isKnown) {
+            map.set(mac.toLowerCase(), {
+              id: `host:h${count}`,
+              mac,
+              ipAddresses: [ip],
+              deviceId: sw.id,
+              port: String(i),
+              locations: [{ elementId: sw.id, port: String(i) }],
+              location: { elementId: sw.id, port: String(i) },
+            });
+            if (ip) knownIps.add(ip.toLowerCase());
+            knownLocations.add(locKey);
+          }
         }
       });
     }
 
     return Array.from(map.values());
-  }, [hosts, slices, activeDevices]);
+  }, [hosts, slices, activeDevices, links]);
 
   // Determine Core vs Leaf Switches for Hierarchical Levels
   const switchLevelMap = useMemo(() => {
@@ -262,13 +302,17 @@ export default function SliceTopology({
       const sliceColor = assignedSlice?.color || "#71717a";
       const isInSlice = Boolean(assignedSlice);
 
-      // Identify connected switch
-      const loc = host.locations?.[0] || host.location;
+      // Identify connected switch (prioritizing true edge host attachment over trunk ports)
+      const edgeLoc = (host.locations || []).find(
+        (l) => l?.elementId && l?.port && !links.some((lk) => (lk.src?.device === l.elementId && String(lk.src?.port) === String(l.port)) || (lk.dst?.device === l.elementId && String(lk.dst?.port) === String(l.port)))
+      );
       const targetSwitchId =
-        loc?.elementId ||
         host.deviceId ||
+        edgeLoc?.elementId ||
+        host.location?.elementId ||
+        host.locations?.[0]?.elementId ||
         (activeDevices.length > 0 ? activeDevices[activeDevices.length - 1].id : null);
-      const portNumber = loc?.port || host.port || "1";
+      const portNumber = host.port || edgeLoc?.port || host.location?.port || host.locations?.[0]?.port || "1";
 
       const parentLevel = targetSwitchId ? (switchLevelMap.get(targetSwitchId) ?? 1) : 1;
 

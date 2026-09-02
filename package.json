@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "vite",
     "server": "node --watch server.js",
+    "server:onos": "node --watch server-onos.js",
     "all": "concurrently \"vite\" \"node --watch server.js\"",
+    "all:onos": "concurrently \"vite\" \"node --watch server-onos.js\"",
     "build": "vite build",
     "test": "vitest --run",
     "preview": "vite preview"

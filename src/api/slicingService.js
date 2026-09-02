@@ -44,12 +44,15 @@ export const SLICE_TEMPLATES = [
   {
     id: "urllc",
     name: "URLLC (Ultra-Reliable Low-Latency)",
-    description: "Mission-critical, low-latency traffic (SCADA, remote surgery)",
-    bandwidth: 10000,
-    burstSize: 2000,
+    description: "Mission-critical low latency with DSCP 46 and Queue 0 priority scheduling (60 Mbps guaranteed)",
+    bandwidth: 60000,
+    burstSize: 10000,
     unit: "KB_PER_SEC",
     color: "#ef4444",
     type: "low-latency",
+    dscp: 46,
+    queueId: 0,
+    guaranteedRate: "60 Mbps",
   },
   {
     id: "mmtc",
@@ -164,6 +167,25 @@ export async function getSlices() {
 }
 
 /**
+ * Extract integer switch index/number from device description or ID.
+ */
+export function getSwitchNumber(d) {
+  if (!d) return 999;
+  const desc = (d.annotations?.datapathDescription || d.label || "").toLowerCase();
+  const descMatch = desc.match(/s(\d+)/);
+  if (descMatch) return parseInt(descMatch[1], 10);
+
+  const parts = String(d.id || "").split(":");
+  const last = parts[parts.length - 1];
+  const num = parseInt(last, 16);
+  if (!isNaN(num)) return num;
+
+  const idMatch = String(d.id || "").match(/(\d+)/g);
+  if (idMatch) return parseInt(idMatch[idMatch.length - 1], 10);
+  return 999;
+}
+
+/**
  * Get network topology info (devices, links, hosts) from ONOS.
  */
 export async function getTopologyInfo() {
@@ -185,58 +207,107 @@ export async function getTopologyInfo() {
     (l) => activeDeviceIds.has(l.src?.device) && activeDeviceIds.has(l.dst?.device)
   );
 
-  // 1. Live ONOS Hosts attached to active switches (authoritative source of truth)
-  const liveHosts = (hosts || []).filter((h) =>
-    (h.locations || []).some((loc) => activeDeviceIds.has(loc.elementId))
-  );
+  // Set of all inter-switch trunk ports (links between switches).
+  // Hosts can NEVER be connected to trunk ports.
+  const interSwitchPorts = new Set();
+  for (const l of links) {
+    if (l.src?.device && l.src?.port) interSwitchPorts.add(`${l.src.device}:${l.src.port}`);
+    if (l.dst?.device && l.dst?.port) interSwitchPorts.add(`${l.dst.device}:${l.dst.port}`);
+  }
 
-  let allHosts = [...liveHosts];
+  // Layered Host Aggregation: Live ONOS -> Saved Slices -> Complementary Leaf Endpoints
+  const allHosts = [];
+  const knownMacs = new Set();
+  const knownIps = new Set();
+  const knownLocations = new Set();
 
-  // 2. If NO live hosts discovered yet in ONOS, check saved slices or fallback to leaf switches
-  if (allHosts.length === 0) {
-    const knownMacs = new Set();
-    const knownIps = new Set();
-    const slices = loadSlices();
+  // 1. Live ONOS Hosts attached to active switches (filtering out transit trunk ports)
+  const liveHosts = (hosts || []).filter((h) => {
+    const loc = getHostLocation(h, links);
+    return loc && activeDeviceIds.has(loc.deviceId);
+  });
 
-    for (const s of slices) {
-      for (const sh of s.hosts || []) {
-        const mac = (sh.mac || "").toLowerCase();
-        const ip = ((sh.ipAddresses || [])[0] || "").toLowerCase();
-        const isKnown = (mac && knownMacs.has(mac)) || (ip && knownIps.has(ip));
+  for (const h of liveHosts) {
+    const mac = (h.mac || h.id || "").toLowerCase();
+    const ip = ((h.ipAddresses || [])[0] || "").toLowerCase();
+    const loc = getHostLocation(h, links);
+    const locKey = loc ? `${loc.deviceId}:${loc.port}` : null;
 
-        if (!isKnown && (!sh.deviceId || activeDeviceIds.has(sh.deviceId))) {
-          if (mac) knownMacs.add(mac);
-          if (ip) knownIps.add(ip);
-          allHosts.push({
-            id: sh.hostId || `${sh.mac}/None`,
-            mac: sh.mac,
-            ipAddresses: sh.ipAddresses || [],
-            locations: sh.deviceId ? [{ elementId: sh.deviceId, port: String(sh.port || "1") }] : [],
-            location: sh.deviceId ? { elementId: sh.deviceId, port: String(sh.port || "1") } : null,
-            deviceId: sh.deviceId,
-            port: String(sh.port || "1"),
-          });
-        }
+    if (mac) knownMacs.add(mac);
+    if (ip) knownIps.add(ip);
+    if (locKey) knownLocations.add(locKey);
+
+    allHosts.push({
+      ...h,
+      id: h.id || `${h.mac}/None`,
+      mac: h.mac,
+      ipAddresses: h.ipAddresses || [],
+      locations: loc ? [{ elementId: loc.deviceId, port: loc.port }] : h.locations || [],
+      location: loc ? { elementId: loc.deviceId, port: loc.port } : h.location,
+      deviceId: loc?.deviceId,
+      port: loc?.port,
+    });
+  }
+
+  // 2. Add any hosts defined in saved slices (if not already captured from live ONOS)
+  const slices = loadSlices();
+  for (const s of slices) {
+    for (const sh of s.hosts || []) {
+      if (sh.deviceId && !activeDeviceIds.has(sh.deviceId)) continue;
+      const mac = (sh.mac || "").toLowerCase();
+      const ip = ((sh.ipAddresses || [])[0] || "").toLowerCase();
+      const locKey = sh.deviceId && sh.port ? `${sh.deviceId}:${sh.port}` : null;
+      const isKnown =
+        (mac && knownMacs.has(mac)) ||
+        (ip && knownIps.has(ip)) ||
+        (locKey && knownLocations.has(locKey));
+
+      if (!isKnown) {
+        if (mac) knownMacs.add(mac);
+        if (ip) knownIps.add(ip);
+        if (locKey) knownLocations.add(locKey);
+
+        allHosts.push({
+          id: sh.hostId || `${sh.mac}/None`,
+          mac: sh.mac,
+          ipAddresses: sh.ipAddresses || [],
+          locations: sh.deviceId ? [{ elementId: sh.deviceId, port: String(sh.port || "1") }] : [],
+          location: sh.deviceId ? { elementId: sh.deviceId, port: String(sh.port || "1") } : null,
+          deviceId: sh.deviceId,
+          port: String(sh.port || "1"),
+        });
       }
     }
+  }
 
-    // 3. Fallback: If STILL 0 hosts discovered, synthesize endpoints strictly for leaf switches (e.g. s2, s3 = 4 hosts)
-    if (allHosts.length === 0 && devices.length > 0) {
-      const leafSwitches = devices.filter((d) => {
-        if (devices.length <= 1) return true;
-        const desc = (d.annotations?.datapathDescription || "").toLowerCase();
-        if (desc === "s1" || desc.includes("core") || desc.includes("spine")) return false;
-        const parts = String(d.id || "").split(":");
-        const num = parseInt(parts[parts.length - 1], 16);
-        return num !== 1;
-      });
-      const targetSwitches = leafSwitches.length > 0 ? leafSwitches : devices;
+  // 3. Complement with leaf switch standard endpoints (e.g. s2: h1, h2; s3: h3, h4)
+  if (devices.length > 0) {
+    const leafSwitches = devices.filter((d) => {
+      if (devices.length <= 1) return true;
+      const desc = (d.annotations?.datapathDescription || "").toLowerCase();
+      if (desc === "s1" || desc.includes("core") || desc.includes("spine")) return false;
+      const num = getSwitchNumber(d);
+      return num !== 1;
+    });
+    const targetSwitches = leafSwitches.length > 0 ? leafSwitches : devices;
+    const sortedSwitches = [...targetSwitches].sort((a, b) => getSwitchNumber(a) - getSwitchNumber(b));
 
-      let count = 1;
-      targetSwitches.forEach((sw) => {
-        for (let i = 1; i <= 2; i++) {
-          const mac = `00:00:00:00:00:0${count}`;
-          const ip = `10.0.0.${count}`;
+    sortedSwitches.forEach((sw, swIdx) => {
+      for (let i = 1; i <= 2; i++) {
+        const count = swIdx * 2 + i;
+        const mac = `00:00:00:00:00:0${count}`;
+        const ip = `10.0.0.${count}`;
+        const locKey = `${sw.id}:${i}`;
+        const isKnown =
+          (mac && knownMacs.has(mac.toLowerCase())) ||
+          (ip && knownIps.has(ip.toLowerCase())) ||
+          knownLocations.has(locKey);
+
+        if (!isKnown) {
+          if (mac) knownMacs.add(mac.toLowerCase());
+          if (ip) knownIps.add(ip.toLowerCase());
+          knownLocations.add(locKey);
+
           allHosts.push({
             id: `host:h${count}`,
             mac,
@@ -246,37 +317,76 @@ export async function getTopologyInfo() {
             deviceId: sw.id,
             port: String(i),
           });
-          count++;
         }
-      });
-    }
+      }
+    });
   }
 
   return { devices, links, hosts: allHosts };
 }
 
 /**
- * Find which device and port a host is connected to.
+ * Find which device and port a host is connected to, filtering out inter-switch trunk ports.
  */
-export function getHostLocation(host) {
+export function getHostLocation(host, links = []) {
+  if (!host) return null;
+
+  const interSwitchPorts = new Set();
+  for (const l of links) {
+    if (l.src?.device && l.src?.port) interSwitchPorts.add(`${l.src.device}:${l.src.port}`);
+    if (l.dst?.device && l.dst?.port) interSwitchPorts.add(`${l.dst.device}:${l.dst.port}`);
+  }
+
+  // 1. Check locations array from ONOS (filtering out inter-switch trunk ports)
   if (host.locations && host.locations.length > 0) {
-    return {
-      deviceId: host.locations[0].elementId,
-      port: String(host.locations[0].port),
-    };
+    const edgeLoc = host.locations.find(
+      (loc) => loc?.elementId && loc?.port && !interSwitchPorts.has(`${loc.elementId}:${loc.port}`)
+    );
+    if (edgeLoc) {
+      return {
+        deviceId: edgeLoc.elementId,
+        port: String(edgeLoc.port),
+      };
+    }
   }
-  if (host.location) {
-    return {
-      deviceId: host.location.elementId,
-      port: String(host.location.port),
-    };
+
+  // 2. Check location object
+  if (host.location?.elementId && host.location?.port) {
+    const locKey = `${host.location.elementId}:${host.location.port}`;
+    if (!interSwitchPorts.has(locKey)) {
+      return {
+        deviceId: host.location.elementId,
+        port: String(host.location.port),
+      };
+    }
   }
+
+  // 3. Check direct deviceId / port properties
+  if (host.deviceId && host.port) {
+    const locKey = `${host.deviceId}:${host.port}`;
+    if (!interSwitchPorts.has(locKey)) {
+      return {
+        deviceId: host.deviceId,
+        port: String(host.port),
+      };
+    }
+  }
+
+  // 4. Fallback: if deviceId is present
   if (host.deviceId) {
     return {
       deviceId: host.deviceId,
       port: String(host.port || "1"),
     };
   }
+
+  if (host.locations && host.locations.length > 0) {
+    return {
+      deviceId: host.locations[0].elementId,
+      port: String(host.locations[0].port || "1"),
+    };
+  }
+
   return null;
 }
 
@@ -358,7 +468,7 @@ export async function createSlice(sliceConfig) {
     burstSize = Math.round(bandwidth * 0.2),
     unit = "KB_PER_SEC",
     color = "#6366f1",
-    selectedHosts = [],
+    selectedHosts = sliceConfig.selectedHosts || sliceConfig.hosts || [],
     vlanId: manualVlanId = null,
   } = sliceConfig;
 
@@ -397,7 +507,7 @@ export async function createSlice(sliceConfig) {
   for (const host of selectedHosts) {
     const mac = host.mac;
     const ips = host.ipAddresses || [];
-    const location = getHostLocation(host);
+    const location = getHostLocation(host, topologyLinks);
 
     if (!location) {
       console.warn(`[Slicing] Host ${mac} has no known location, skipping`);
@@ -472,10 +582,13 @@ export async function createSlice(sliceConfig) {
     });
   }
 
-  // Step 2: Install end-to-end peer forwarding and ARP flows between all pairs of hosts
+  // Step 2: Install end-to-end peer unicast forwarding flows between all pairs of hosts
+  // And collect ARP broadcast rules grouped by (deviceId, inPort, sourceMac)
+  const arpRuleMap = new Map();
+
   for (let i = 0; i < selectedHosts.length; i++) {
     const hostA = selectedHosts[i];
-    const locA = getHostLocation(hostA);
+    const locA = getHostLocation(hostA, topologyLinks);
     if (!locA) continue;
 
     const hostAInstalled = installedHosts.find((h) => h.mac === hostA.mac);
@@ -484,7 +597,7 @@ export async function createSlice(sliceConfig) {
     for (let j = 0; j < selectedHosts.length; j++) {
       if (i === j) continue;
       const hostB = selectedHosts[j];
-      const locB = getHostLocation(hostB);
+      const locB = getHostLocation(hostB, topologyLinks);
       if (!locB) continue;
 
       // Find path from switch of Host A to switch of Host B
@@ -494,18 +607,58 @@ export async function createSlice(sliceConfig) {
         continue;
       }
 
-      // Install forwarding flows along each hop
+      // Install unicast forwarding flows along each hop
+      const isLowLatency = sliceConfig.type === "low-latency" || sliceConfig.template === "urllc";
+
       for (let hopIdx = 0; hopIdx < hops.length; hopIdx++) {
         const hop = hops[hopIdx];
         const isIngress = hopIdx === 0;
 
+        // 1. If low-latency / URLLC slice: Install Priority 41000 Flow matching DSCP 46 -> Queue 0 (60 Mbps guaranteed)
+        if (isLowLatency) {
+          const dscp46Flow = {
+            priority: 41000,
+            timeout: 0,
+            isPermanent: true,
+            deviceId: hop.deviceId,
+            tableId: 0,
+            treatment: {
+              instructions: [
+                { type: "QUEUE", queueId: 0 },
+                { type: "OUTPUT", port: String(hop.outPort) },
+              ],
+            },
+            selector: {
+              criteria: [
+                { type: "ETH_TYPE", ethType: 2048 },
+                { type: "IP_DSCP", ipDscp: 46 },
+                { type: "IN_PORT", port: Number(hop.inPort) },
+                { type: "ETH_SRC", mac: hostA.mac },
+                { type: "ETH_DST", mac: hostB.mac },
+              ],
+            },
+          };
+
+          try {
+            const res = await installOnosFlow(hop.deviceId, dscp46Flow);
+            const fid = res?.flowId || res?.id;
+            if (fid) installedFlows.push({ deviceId: hop.deviceId, flowId: fid });
+          } catch (err) {
+            console.error(`[Slicing] Failed DSCP 46 priority queue flow on ${hop.deviceId}:`, err);
+          }
+        }
+
+        // 2. Standard traffic flow (Priority 40000): Ingress meter + Queue 1 (or standard forwarding)
         const instructions = [];
         if (isIngress && meterIdA) {
           instructions.push({ type: "METER", meterId: Number(meterIdA) });
         }
+        if (isLowLatency) {
+          instructions.push({ type: "QUEUE", queueId: 1 });
+        }
         instructions.push({ type: "OUTPUT", port: String(hop.outPort) });
 
-        // Unicast traffic flow (both IPv4 and unicast ARP)
+        // Unicast traffic flow (both IPv4 and unicast ARP replies)
         const unicastFlow = {
           priority: 40000,
           timeout: 0,
@@ -530,31 +683,50 @@ export async function createSlice(sliceConfig) {
           console.error(`[Slicing] Failed unicast flow on ${hop.deviceId}:`, err);
         }
 
-        // ARP Broadcast flow (0x0806) along the path so Host A's ARP requests reach Host B
-        const arpFlow = {
-          priority: 40000,
-          timeout: 0,
-          isPermanent: true,
-          deviceId: hop.deviceId,
-          tableId: 0,
-          treatment: { instructions: [{ type: "OUTPUT", port: String(hop.outPort) }] },
-          selector: {
-            criteria: [
-              { type: "IN_PORT", port: Number(hop.inPort) },
-              { type: "ETH_TYPE", ethType: "0x0806" },
-              { type: "ETH_SRC", mac: hostA.mac },
-            ],
-          },
-        };
-
-        try {
-          const res = await installOnosFlow(hop.deviceId, arpFlow);
-          const fid = res?.flowId || res?.id;
-          if (fid) installedFlows.push({ deviceId: hop.deviceId, flowId: fid });
-        } catch (err) {
-          console.error(`[Slicing] Failed ARP flow on ${hop.deviceId}:`, err);
+        // Record ARP broadcast output requirement for this switch + inPort + hostA.mac
+        const arpKey = `${hop.deviceId}__${hop.inPort}__${hostA.mac.toLowerCase()}`;
+        if (!arpRuleMap.has(arpKey)) {
+          arpRuleMap.set(arpKey, {
+            deviceId: hop.deviceId,
+            inPort: hop.inPort,
+            mac: hostA.mac,
+            outPorts: new Set(),
+          });
         }
+        arpRuleMap.get(arpKey).outPorts.add(Number(hop.outPort));
       }
+    }
+  }
+
+  // Step 3: Install consolidated ARP Broadcast flows with multi-port output instructions
+  for (const rule of arpRuleMap.values()) {
+    const instructions = Array.from(rule.outPorts).map((p) => ({
+      type: "OUTPUT",
+      port: String(p),
+    }));
+
+    const arpFlow = {
+      priority: 40000,
+      timeout: 0,
+      isPermanent: true,
+      deviceId: rule.deviceId,
+      tableId: 0,
+      treatment: { instructions },
+      selector: {
+        criteria: [
+          { type: "IN_PORT", port: Number(rule.inPort) },
+          { type: "ETH_TYPE", ethType: 2054 },
+          { type: "ETH_SRC", mac: rule.mac },
+        ],
+      },
+    };
+
+    try {
+      const res = await installOnosFlow(rule.deviceId, arpFlow);
+      const fid = res?.flowId || res?.id;
+      if (fid) installedFlows.push({ deviceId: rule.deviceId, flowId: fid });
+    } catch (err) {
+      console.error(`[Slicing] Failed ARP flow on ${rule.deviceId}:`, err);
     }
   }
 
@@ -633,9 +805,9 @@ export async function deleteSlice(sliceId) {
           const srcMac = f.selector?.criteria?.find((c) => c.type === "ETH_SRC")?.mac?.toLowerCase();
           const dstMac = f.selector?.criteria?.find((c) => c.type === "ETH_DST")?.mac?.toLowerCase();
 
-          // If the flow rule was installed for these hosts (Priority 40000, 39000, or reactive forwarding)
+          // If the flow rule was installed for these hosts (Priority 41000, 40000, 39000, or reactive forwarding)
           const isSliceFlow =
-            (f.priority === 40000 || f.priority === 39000 || f.appId === "org.onosproject.fwd") &&
+            (f.priority === 41000 || f.priority === 40000 || f.priority === 39000 || f.appId === "org.onosproject.fwd") &&
             ((srcMac && hostMacs.has(srcMac)) || (dstMac && hostMacs.has(dstMac)));
 
           if (isSliceFlow) {
@@ -662,10 +834,12 @@ export async function deleteSlice(sliceId) {
  * Check if a host is already assigned to a slice.
  */
 export function isHostInAnySlice(hostMac) {
+  if (!hostMac) return null;
+  const target = hostMac.toLowerCase();
   const slices = loadSlices();
   for (const slice of slices) {
     for (const host of slice.hosts || []) {
-      if (host.mac === hostMac) return slice;
+      if ((host.mac || "").toLowerCase() === target) return slice;
     }
   }
   return null;
