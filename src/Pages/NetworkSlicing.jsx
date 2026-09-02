@@ -964,6 +964,8 @@ export default function NetworkSlicing() {
     }
   }, [editingSlice, loadData, showMessage]);
 
+  const handleCreate = handleSubmitSlice;
+
   const handleDelete = useCallback(async (sliceId) => {
     const slice = slices.find((s) => s.id === sliceId);
     if (!slice) return;
@@ -1149,7 +1151,7 @@ export default function NetworkSlicing() {
         existingSlices={slices}
         totalCapacity={totalCapacity}
         remainingCapacity={remainingCapacity}
-        onDeploySlice={handleCreate}
+        onDeploySlice={handleSubmitSlice}
         onPrefillManualForm={(data) => {
           setPrefillData(data);
           setShowCreate(true);
