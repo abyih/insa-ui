@@ -94,4 +94,52 @@ describe("AI Intent Service (IBN Layer)", () => {
     const res = await testAiConnection("heuristic", "", "");
     expect(res.success).toBe(true);
   });
+
+  it("compiles intent using local-nlp provider via mock fetch", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      if (url.includes("/health")) {
+        return {
+          ok: true,
+          json: async () => ({ status: "ok", model: "all-MiniLM-L6-v2" }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          sliceName: "Test-Local-Slice",
+          sliceType: "urllc",
+          description: "Local neural compiled URLLC",
+          bandwidth: 15000,
+          burstSize: 3000,
+          unit: "KB_PER_SEC",
+          color: "#ef4444",
+          vlanId: null,
+          targetHostIps: ["10.0.0.1"],
+          confidence: 0.94,
+          reasoning: "Semantically matched to URLLC",
+          admissionStatus: "APPROVED",
+          openFlowActions: ["Priority 40000 flow rule"],
+        }),
+      };
+    };
+
+    try {
+      const connTest = await testAiConnection("local-nlp", "", "all-MiniLM-L6-v2");
+      expect(connTest.success).toBe(true);
+
+      const result = await compileIntent(
+        "Low latency drone control for 10.0.0.1",
+        mockNetworkContext,
+        { provider: "local-nlp", apiKey: "", model: "all-MiniLM-L6-v2" }
+      );
+
+      expect(result.sliceType).toBe("urllc");
+      expect(result.bandwidth).toBe(15000);
+      expect(result.targetHostIps).toEqual(["10.0.0.1"]);
+      expect(result.provider).toBe("local-nlp (all-MiniLM-L6-v2)");
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
 });

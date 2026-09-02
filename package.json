@@ -8,8 +8,10 @@
     "dev": "vite",
     "server": "node --watch server.js",
     "server:onos": "node --watch server-onos.js",
+    "intent:service": "cd anomaly && uv run python intent_service.py",
     "all": "concurrently \"vite\" \"node --watch server.js\"",
     "all:onos": "concurrently \"vite\" \"node --watch server-onos.js\"",
+    "all:onos:intent": "concurrently \"vite\" \"node --watch server-onos.js\" \"cd anomaly && uv run python intent_service.py\"",
     "build": "vite build",
     "test": "vitest --run",
     "preview": "vite preview"

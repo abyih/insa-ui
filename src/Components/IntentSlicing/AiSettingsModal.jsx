@@ -36,7 +36,7 @@ export default function AiSettingsModal({ isOpen, onClose, onSettingsUpdated }) 
       setTestResult(null);
       setSavedSuccess(false);
       const isKnown = (PROVIDER_MODELS[current.provider] || []).some((m) => m.id === current.model);
-      setIsCustomModel(!isKnown && current.provider !== "heuristic");
+      setIsCustomModel(!isKnown && current.provider !== "heuristic" && current.provider !== "local-nlp");
     }
   }, [isOpen]);
 
@@ -216,6 +216,13 @@ export default function AiSettingsModal({ isOpen, onClose, onSettingsUpdated }) 
                   icon: Shield,
                   color: "#22c55e",
                 },
+                {
+                  id: "local-nlp",
+                  name: "Local Neural AI",
+                  desc: "MiniLM NLP • 100% Offline & Private",
+                  icon: Cpu,
+                  color: "#10b981",
+                },
               ].map((p) => {
                 const IconComponent = p.icon;
                 const isSelected = settings.provider === p.id;
@@ -246,8 +253,45 @@ export default function AiSettingsModal({ isOpen, onClose, onSettingsUpdated }) 
             </div>
           </div>
 
+          {/* Local Neural Engine Info Banner */}
+          {settings.provider === "local-nlp" && (
+            <div
+              style={{
+                padding: "12px 16px",
+                borderRadius: 12,
+                background: "rgba(16,185,129,0.08)",
+                border: "1px solid rgba(16,185,129,0.25)",
+                marginBottom: 18,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+              }}
+            >
+              <div style={{ fontSize: 12, color: "#a7f3d0", lineHeight: 1.4 }}>
+                <strong>Zero Cloud Leakage:</strong> Uses the pretrained <code>all-MiniLM-L6-v2</code> neural semantic model locally on your CPU. No API key needed. Topology, IP addresses, and slicing intents never leave your machine.
+              </div>
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  background: "rgba(16,185,129,0.2)",
+                  color: "#34d399",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  flexShrink: 0,
+                }}
+              >
+                <Shield size={12} /> Air-Gapped
+              </div>
+            </div>
+          )}
+
           {/* Quick Guide & Link to get key */}
-          {settings.provider !== "heuristic" && (
+          {settings.provider !== "heuristic" && settings.provider !== "local-nlp" && (
             <div
               style={{
                 padding: "12px 16px",
@@ -308,7 +352,7 @@ export default function AiSettingsModal({ isOpen, onClose, onSettingsUpdated }) 
           )}
 
           {/* API Key Input */}
-          {settings.provider !== "heuristic" && (
+          {settings.provider !== "heuristic" && settings.provider !== "local-nlp" && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <label style={labelStyle}>API Key *</label>
@@ -361,7 +405,7 @@ export default function AiSettingsModal({ isOpen, onClose, onSettingsUpdated }) 
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <label style={{ ...labelStyle, marginBottom: 0 }}>Model Engine</label>
-              {settings.provider !== "heuristic" && (
+              {settings.provider !== "heuristic" && settings.provider !== "local-nlp" && (
                 <button
                   type="button"
                   onClick={() => setIsCustomModel(!isCustomModel)}
@@ -414,7 +458,7 @@ export default function AiSettingsModal({ isOpen, onClose, onSettingsUpdated }) 
                     {m.name}
                   </option>
                 ))}
-                {settings.provider !== "heuristic" && (
+                {settings.provider !== "heuristic" && settings.provider !== "local-nlp" && (
                   <option value="__custom__" style={{ background: "#18181b", color: "#818cf8" }}>
                     + Custom Model ID...
                   </option>

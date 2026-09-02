@@ -238,6 +238,50 @@ app.get("/api/onos/meters", async (req, res) => {
 });
 
 /* ==============================================================================
+   LOCAL NEURAL INTENT SERVICE PROXY (Offline all-MiniLM-L6-v2 NLP Engine)
+   ============================================================================== */
+const INTENT_SERVICE_URL = process.env.INTENT_SERVICE_URL || "http://127.0.0.1:5005";
+
+app.get(["/api/onos/intent/health", "/api/intent/health"], async (req, res) => {
+  try {
+    const resp = await fetch(`${INTENT_SERVICE_URL}/health`, { signal: AbortSignal.timeout(3000) });
+    if (!resp.ok) throw new Error(`Status ${resp.status}`);
+    const data = await resp.json();
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    res.status(503).json({
+      ok: false,
+      status: "OFFLINE",
+      error: "Local Neural Intent Service is not reachable on port 5005",
+      hint: "Start it with: bun run intent:service (or cd anomaly && uv run python intent_service.py)",
+    });
+  }
+});
+
+app.post(["/api/onos/intent/compile", "/api/intent/compile"], async (req, res) => {
+  try {
+    const resp = await fetch(`${INTENT_SERVICE_URL}/compile`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`Intent compiler returned ${resp.status}: ${errText}`);
+    }
+    const data = await resp.json();
+    res.json(data);
+  } catch (err) {
+    console.error("[Intent Engine Proxy Error]:", err.message);
+    res.status(500).json({
+      error: err.message,
+      hint: "Verify local intent service is running on http://127.0.0.1:5005",
+    });
+  }
+});
+
+/* ==============================================================================
    MININET OVS HTB QoS QUEUE MANAGEMENT
    ============================================================================== */
 app.post("/api/onos/qos/setup", (req, res) => {

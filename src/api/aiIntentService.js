@@ -55,6 +55,9 @@ export const PROVIDER_MODELS = {
   heuristic: [
     { id: "rule-based-v1", name: "Built-in Smart Heuristic Parser (Offline)" },
   ],
+  "local-nlp": [
+    { id: "all-MiniLM-L6-v2", name: "Local Pretrained Neural Engine (all-MiniLM-L6-v2 • 100% Offline & Private)" },
+  ],
 };
 
 // ─── Settings Persistence ───────────────────────────────────────────────────
@@ -414,6 +417,32 @@ async function callOpenRouterApi(apiKey, model, systemPrompt, userPrompt) {
   return JSON.parse(cleaned);
 }
 
+// ─── Local Neural NLP API Connector (100% Offline & Private) ─────────────
+
+export async function callLocalNlpApi(prompt, networkContext = {}) {
+  const endpoints = ["/api/onos/intent/compile", "http://127.0.0.1:5005/compile"];
+  let lastError = null;
+
+  for (const endpoint of endpoints) {
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, networkContext }),
+        signal: AbortSignal.timeout(6000),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      const errText = await res.text();
+      lastError = new Error(`Local Intent Service error (${res.status}): ${errText}`);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error("Failed to connect to local neural intent service on port 5005.");
+}
+
 // ─── Public Main Method: Compile Natural Language Intent ─────────────────────
 
 /**
@@ -434,8 +463,18 @@ export async function compileIntent(prompt, networkContext = {}, overrideSetting
   let result = null;
   let providerUsed = settings.provider;
 
-  // If provider is heuristic or no API key is provided, use heuristic
-  if (settings.provider === "heuristic" || !settings.apiKey) {
+  // If provider is local-nlp, call local neural microservice without requiring apiKey
+  if (settings.provider === "local-nlp") {
+    try {
+      result = await callLocalNlpApi(prompt, networkContext);
+      providerUsed = "local-nlp (all-MiniLM-L6-v2)";
+    } catch (err) {
+      console.warn(`[AI Intent] Local NLP call failed (${err.message}). Falling back to Heuristic Parser.`, err);
+      result = compileIntentHeuristically(prompt, networkContext);
+      result.reasoning = `[Local Service Fallback: ${err.message}] ` + (result.reasoning || "");
+      providerUsed = "heuristic (fallback)";
+    }
+  } else if (settings.provider === "heuristic" || !settings.apiKey) {
     result = compileIntentHeuristically(prompt, networkContext);
     providerUsed = "heuristic";
   } else {
@@ -515,6 +554,38 @@ export async function compileIntent(prompt, networkContext = {}, overrideSetting
 export async function testAiConnection(provider, apiKey, model) {
   if (provider === "heuristic") {
     return { success: true, latency: 5, message: "Offline Heuristic Parser ready." };
+  }
+
+  if (provider === "local-nlp") {
+    const startTime = Date.now();
+    try {
+      const endpoints = ["/api/onos/intent/health", "http://127.0.0.1:5005/health"];
+      let data = null;
+      for (const endpoint of endpoints) {
+        try {
+          const res = await fetch(endpoint, { signal: AbortSignal.timeout(3000) });
+          if (res.ok) {
+            data = await res.json();
+            break;
+          }
+        } catch {
+          // try next
+        }
+      }
+      if (!data) throw new Error("Local service unreachable on port 5005. Run: bun run intent:service");
+      const latency = Date.now() - startTime;
+      return {
+        success: true,
+        latency,
+        message: `Local Neural Engine connected (${data.model || "all-MiniLM-L6-v2"} • ${latency}ms • 100% Offline)`,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        latency: 0,
+        message: err.message || "Local Neural Engine is offline.",
+      };
+    }
   }
 
   if (!apiKey) {
